@@ -27,8 +27,9 @@
     { letter: "L", teams: [t("Angleterre","gb-eng"), t("Croatie","hr"), t("Ghana","gh"), t("Panama","pa")] },
   ];
 
-  // Liste à plat des équipes (pour les pronos bonus : vainqueur, buteur…)
+  // Liste à plat des équipes (pour les pronos bonus : buteur…)
   WC.TEAMS = WC.GROUPS.flatMap((g) => g.teams);
+  WC.TEAM_BY_NAME = Object.fromEntries(WC.TEAMS.map((t) => [t.name, t]));
 
   // Dates indicatives par groupe : [matchday1, matchday2, matchday3]
   const DATES = {
@@ -73,13 +74,33 @@
   MATCHES.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.group.localeCompare(b.group)));
   WC.MATCHES = MATCHES;
 
-  // Questions bonus (résolues par l'organisateur en fin de tournoi)
+  // Question bonus (le vainqueur / les finalistes sont désormais couverts
+  // par le tableau final). Résolue par l'organisateur en fin de tournoi.
   WC.BONUS = [
-    { id: "champion", label: "Vainqueur de la Coupe du Monde", points: 15, type: "team", icon: "trophy" },
-    { id: "finalist", label: "Finaliste malheureux", points: 10, type: "team", icon: "medal" },
     { id: "topScorer", label: "Meilleur buteur du tournoi", points: 10, type: "text", icon: "boot" },
   ];
 
-  // Barème
+  // Phases finales (tableau à élimination directe)
+  // Round of 32 → Finale. Les 2 premiers de chaque groupe + 8 meilleurs 3es.
+  WC.KO_ROUNDS = [
+    { key: "r32", label: "16es", short: "16es", n: 16, prev: null }, // 32 équipes → 16 matchs
+    { key: "r16", label: "8es de finale", short: "8es", n: 8, prev: "r32" },
+    { key: "qf", label: "Quarts de finale", short: "Quarts", n: 4, prev: "r16" },
+    { key: "sf", label: "Demi-finales", short: "Demis", n: 2, prev: "qf" },
+    { key: "final", label: "Finale", short: "Finale", n: 1, prev: "sf" },
+  ];
+
+  // Points par vainqueur correct à chaque tour (un vainqueur de 16e = un
+  // qualifié en 8es, etc.). Le vainqueur de la finale = champion.
+  WC.KO_POINTS = { r32: 2, r16: 4, qf: 7, sf: 10, final: 20 };
+  WC.KO_LABELS = {
+    r32: "qualifié en 8es",
+    r16: "qualifié en quarts",
+    qf: "qualifié en demies",
+    sf: "finaliste",
+    final: "vainqueur",
+  };
+
+  // Barème phase de groupes
   WC.POINTS = { exact: 5, diff: 3, outcome: 1 };
 })();

@@ -6,6 +6,8 @@
   let state = WC.store.load();
   let view = "home";
   let filterGroup = "A";
+  let predictPhase = "groups"; // "groups" | "bracket"
+  let koRound = "r32"; // tour affiché dans le tableau final
   let resultsMode = false; // dans l'onglet Pronos : false = mes pronos, true = saisie résultats
 
   const app = document.getElementById("app");
@@ -29,7 +31,7 @@
     t._t = setTimeout(() => t.classList.remove("show"), 2200);
   };
 
-  const me = () => ({ name: state.me.name || "Moi", predictions: state.predictions, bonus: state.bonus });
+  const me = () => ({ name: state.me.name || "Moi", predictions: state.predictions, bonus: state.bonus, bracket: state.bracket });
   const allPlayers = () => [me(), ...state.league];
   const hasResults = () => WC.MATCHES.some((m) => WC.isFilled(state.results[m.id]));
 
@@ -65,6 +67,11 @@
     const days = Math.max(0, Math.ceil((KICKOFF - new Date()) / 86400000));
     const filled = WC.MATCHES.filter((m) => WC.isFilled(state.predictions[m.id])).length;
     const pct = Math.round((filled / WC.MATCHES.length) * 100);
+    const koFilled = (state.bracket.win.final || []).filter(Boolean).length
+      ? "Champion désigné"
+      : (state.bracket.teams || []).filter(Boolean).length
+      ? "En cours"
+      : "À remplir";
     const name = state.me.name || "";
     return `
       <header class="hero">
@@ -92,7 +99,8 @@
           <span class="pill">${filled}/${WC.MATCHES.length}</span>
         </div>
         <div class="progress"><div class="progress-bar" style="width:${pct}%"></div></div>
-        <button class="btn btn-primary full" data-view="predict">${filled ? "Continuer mes pronos" : "Commencer mes pronos"} ${WC.icon("arrowRight", 18)}</button>
+        <button class="btn btn-primary full" data-act="goGroups">${filled ? "Continuer mes pronos" : "Commencer mes pronos"} ${WC.icon("arrowRight", 18)}</button>
+        <button class="btn btn-ghost full" data-act="goBracket">${WC.icon("trophy", 16)} Tableau final — ${koFilled}</button>
       </section>
 
       <section class="grid2">
@@ -107,20 +115,31 @@
   };
 
   views.predict = function () {
+    const subTabs = `
+      <div class="subtabs">
+        <button class="subtab ${predictPhase === "groups" ? "active" : ""}" data-phase="groups">${WC.icon("ball", 16)} Phase de groupes</button>
+        <button class="subtab ${predictPhase === "bracket" ? "active" : ""}" data-phase="bracket">${WC.icon("trophy", 16)} Tableau final</button>
+      </div>`;
+
+    const head = `
+      <header class="topbar">
+        <h2>${resultsMode ? "Saisie des résultats" : "Mes pronostics"}</h2>
+      </header>
+      ${resultsMode ? `<p class="banner">Mode organisateur — saisis ici les vrais résultats pour calculer le classement.</p>` : ""}
+      ${subTabs}`;
+
+    if (predictPhase === "bracket") return head + bracketView(resultsMode);
+
     const store = resultsMode ? state.results : state.predictions;
     const matches = WC.MATCHES.filter((m) => m.group === filterGroup);
     const groupChips = WC.GROUPS.map(
       (g) => `<button class="chip ${g.letter === filterGroup ? "active" : ""}" data-group="${g.letter}">${g.letter}</button>`
     ).join("");
-
     const filled = WC.MATCHES.filter((m) => WC.isFilled(store[m.id])).length;
 
     return `
-      <header class="topbar">
-        <h2>${resultsMode ? "Saisie des résultats" : "Mes pronostics"}</h2>
-        <span class="pill">${filled}/${WC.MATCHES.length}</span>
-      </header>
-      ${resultsMode ? `<p class="banner">Mode organisateur — saisis les vrais scores pour calculer le classement.</p>` : ""}
+      ${head}
+      <div class="phase-meta"><span class="pill">${filled}/${WC.MATCHES.length} matchs</span></div>
       <div class="chips">${groupChips}</div>
       <div class="match-list">
         ${matches.map((m) => matchCard(m, store)).join("")}
@@ -133,6 +152,86 @@
       }
     `;
   };
+
+  /* ---------------- Tableau final (phases finales) ---------------- */
+  function bracketView(isResults) {
+    const B = isResults ? state.bracketResults : state.bracket;
+    if (!B.win) Object.assign(B, WC.store.emptyBracket());
+    const round = WC.KO_ROUNDS.find((r) => r.key === koRound) || WC.KO_ROUNDS[0];
+
+    const roundChips = WC.KO_ROUNDS.map(
+      (r) => `<button class="chip chip-wide ${r.key === round.key ? "active" : ""}" data-round-tab="${r.key}">${r.short}</button>`
+    ).join("");
+
+    // Récupère les deux équipes d'un match du tour courant
+    const teamsOf = (i) => {
+      if (round.key === "r32") return [B.teams[i * 2] || "", B.teams[i * 2 + 1] || ""];
+      const pw = B.win[round.prev] || [];
+      return [pw[i * 2] || "", pw[i * 2 + 1] || ""];
+    };
+
+    const champion = (B.win.final || [])[0];
+    const banner = champion
+      ? `<div class="champ-banner">${WC.icon("trophy", 20)} Champion ${isResults ? "" : "pronostiqué"} : <b>${flagName(champion)}</b></div>`
+      : "";
+
+    let cards = "";
+    for (let i = 0; i < round.n; i++) {
+      const [a, b] = teamsOf(i);
+      const winner = (B.win[round.key] || [])[i] || "";
+      cards += koMatchCard(round, i, a, b, winner, isResults);
+    }
+
+    return `
+      <p class="hint ko-hint">Choisis les 32 qualifiés en 16es, puis fais avancer ton tableau jusqu'au sacre. Barème : ${WC.KO_POINTS.r32} pts par qualifié en 8es, ${WC.KO_POINTS.r16} en quarts, ${WC.KO_POINTS.qf} en demies, ${WC.KO_POINTS.sf} par finaliste, ${WC.KO_POINTS.final} pts pour le vainqueur.</p>
+      ${banner}
+      <div class="chips">${roundChips}</div>
+      <div class="match-list">${cards}</div>
+      ${
+        isResults
+          ? ""
+          : `<button class="btn btn-primary full" data-act="share">${WC.icon("share", 18)} Partager mes pronos</button>`
+      }
+    `;
+  }
+
+  function koMatchCard(round, i, a, b, winner, isResults) {
+    const ds = isResults ? "koResult" : "ko";
+    const isR32 = round.key === "r32";
+    const cell = (team, slot) => {
+      if (isR32) {
+        return `<select class="ko-select" data-act="koTeam" data-store="${ds}" data-slot="${i * 2 + slot}">
+            ${teamOptions(team)}
+          </select>`;
+      }
+      return `<span class="ko-team-label">${team ? flagName(team) : '<span class="muted">—</span>'}</span>`;
+    };
+    const advBtn = (team) =>
+      `<button class="ko-adv ${winner && winner === team ? "win" : ""}" data-act="koWin" data-store="${ds}" data-round="${round.key}" data-idx="${i}" data-team="${esc(team)}" ${team ? "" : "disabled"} aria-label="faire avancer">${WC.icon("check", 14)}</button>`;
+    return `
+      <div class="ko-match ${winner ? "decided" : ""}">
+        <span class="ko-num">M${i + 1}</span>
+        <div class="ko-side ${winner === a ? "is-win" : ""}">${cell(a, 0)}${advBtn(a)}</div>
+        <div class="ko-side ${winner === b ? "is-win" : ""}">${cell(b, 1)}${advBtn(b)}</div>
+      </div>`;
+  }
+
+  function teamOptions(sel) {
+    return (
+      `<option value="">— équipe —</option>` +
+      WC.GROUPS.map(
+        (g) =>
+          `<optgroup label="Groupe ${g.letter}">` +
+          g.teams.map((t) => `<option value="${esc(t.name)}" ${sel === t.name ? "selected" : ""}>${esc(t.name)}</option>`).join("") +
+          `</optgroup>`
+      ).join("")
+    );
+  }
+
+  function flagName(name) {
+    const t = WC.TEAM_BY_NAME[name];
+    return t ? `${WC.flag(t.code)}<span class="tname">${esc(name)}</span>` : esc(name);
+  }
 
   function matchCard(m, store) {
     const v = store[m.id] || {};
@@ -191,7 +290,7 @@
         </div>`;
     }
     const rows = allPlayers()
-      .map((p) => ({ name: p.name, ...WC.totalPoints(p, state.results, state.bonusResults) }))
+      .map((p) => ({ name: p.name, ...WC.totalPoints(p, state.results, state.bonusResults, state.bracketResults) }))
       .sort((a, b) => b.total - a.total || b.exact - a.exact);
     return `
       <header class="topbar"><h2>Classement</h2><span class="pill">${rows.length} joueur${rows.length > 1 ? "s" : ""}</span></header>
@@ -201,13 +300,13 @@
             (r, i) => `
           <div class="rank-row ${r.name === (state.me.name || "Moi") ? "is-me" : ""}">
             <div class="rank-pos rank-${i + 1 <= 3 ? i + 1 : "n"}">${i + 1 <= 3 ? WC.icon("trophy", 18) : i + 1}</div>
-            <div class="rank-name">${esc(r.name)}<span class="rank-sub">${r.exact} score${r.exact > 1 ? "s" : ""} exact${r.exact > 1 ? "s" : ""} · ${r.played} match${r.played > 1 ? "s" : ""}</span></div>
+            <div class="rank-name">${esc(r.name)}<span class="rank-sub">${r.matchPts} groupes · ${r.koPts} tableau${r.bonusPts ? ` · ${r.bonusPts} bonus` : ""} · ${r.exact} exact${r.exact > 1 ? "s" : ""}</span></div>
             <div class="rank-pts">${r.total}<span>pts</span></div>
           </div>`
           )
           .join("")}
       </div>
-      <p class="foot">Barème : score exact ${WC.POINTS.exact} pts · bonne différence ${WC.POINTS.diff} pts · bon résultat ${WC.POINTS.outcome} pt</p>
+      <p class="foot">Barème : score exact ${WC.POINTS.exact} pts · bonne différence ${WC.POINTS.diff} pts · bon résultat ${WC.POINTS.outcome} pt · tableau final ${WC.KO_POINTS.r32}→${WC.KO_POINTS.final} pts</p>
     `;
   };
 
@@ -270,7 +369,7 @@
   }
 
   document.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-view],[data-act],[data-group]");
+    const b = e.target.closest("[data-view],[data-act],[data-group],[data-phase],[data-round-tab]");
     if (!b) return;
 
     if (b.dataset.view) {
@@ -282,8 +381,37 @@
       filterGroup = b.dataset.group;
       return render();
     }
+    if (b.dataset.phase) {
+      predictPhase = b.dataset.phase;
+      return render();
+    }
+    if (b.dataset.roundTab) {
+      koRound = b.dataset.roundTab;
+      return render();
+    }
 
     const act = b.dataset.act;
+    if (act === "goGroups") {
+      resultsMode = false;
+      predictPhase = "groups";
+      view = "predict";
+      return render();
+    }
+    if (act === "goBracket") {
+      resultsMode = false;
+      predictPhase = "bracket";
+      view = "predict";
+      return render();
+    }
+    if (act === "koWin") {
+      const target = b.dataset.store === "koResult" ? state.bracketResults : state.bracket;
+      const arr = (target.win[b.dataset.round] = target.win[b.dataset.round] || []);
+      const idx = +b.dataset.idx;
+      arr[idx] = arr[idx] === b.dataset.team ? "" : b.dataset.team; // re-tap = annuler
+      pruneBracket(target);
+      save();
+      return render();
+    }
     if (act === "inc" || act === "dec") {
       const inp = document.querySelector(`.score[data-mid="${b.dataset.mid}"][data-side="${b.dataset.side}"][data-store="${b.dataset.store}"]`);
       let n = parseInt(inp.value, 10);
@@ -331,8 +459,34 @@
       const target = el.dataset.store === "bonusResult" ? state.bonusResults : state.bonus;
       target[el.dataset.bonus] = el.value;
       save();
+    } else if (el.dataset.act === "koTeam") {
+      const target = el.dataset.store === "koResult" ? state.bracketResults : state.bracket;
+      target.teams[+el.dataset.slot] = el.value;
+      pruneBracket(target);
+      save();
+      render();
     }
   });
+
+  // Nettoie les vainqueurs devenus incohérents après un changement amont
+  function pruneBracket(B) {
+    if (!B.win) Object.assign(B, WC.store.emptyBracket());
+    WC.KO_ROUNDS.forEach((r) => {
+      const w = (B.win[r.key] = B.win[r.key] || []);
+      for (let i = 0; i < r.n; i++) {
+        let a, b;
+        if (r.key === "r32") {
+          a = B.teams[i * 2] || "";
+          b = B.teams[i * 2 + 1] || "";
+        } else {
+          const pw = B.win[r.prev] || [];
+          a = pw[i * 2] || "";
+          b = pw[i * 2 + 1] || "";
+        }
+        if (w[i] && w[i] !== a && w[i] !== b) w[i] = "";
+      }
+    });
+  }
 
   function updateProgress() {
     const pill = document.querySelector(".topbar .pill");
@@ -425,6 +579,15 @@
           <li><b>${WC.POINTS.outcome} pt</b> — Bon résultat (vainqueur ou nul) seulement</li>
           <li><b>0 pt</b> — Mauvais pronostic</li>
         </ul>
+        <h3>Tableau final (phases finales)</h3>
+        <ul class="rules">
+          <li><b>+${WC.KO_POINTS.r32}</b> — par équipe correctement qualifiée en 8es</li>
+          <li><b>+${WC.KO_POINTS.r16}</b> — par équipe en quarts de finale</li>
+          <li><b>+${WC.KO_POINTS.qf}</b> — par équipe en demi-finales</li>
+          <li><b>+${WC.KO_POINTS.sf}</b> — par finaliste</li>
+          <li><b>+${WC.KO_POINTS.final}</b> — pour le champion du monde</li>
+        </ul>
+        <p class="hint">Le tableau est noté par équipe : peu importe la position exacte, tu marques dès qu'une équipe que tu as fait avancer atteint réellement le tour.</p>
         <h3>Bonus (fin de tournoi)</h3>
         <ul class="rules">
           ${WC.BONUS.map((b) => `<li><b>+${b.points}</b> — ${b.label}</li>`).join("")}

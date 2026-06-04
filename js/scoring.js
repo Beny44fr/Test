@@ -28,11 +28,35 @@
   };
 
   /**
-   * Total des points d'un joueur.
-   * player = { name, predictions:{id:{h,a}}, bonus:{champion,finalist,topScorer} }
-   * results = { id:{h,a} }, bonusResults = { champion, finalist, topScorer }
+   * Points du tableau final : pour chaque tour, +KO_POINTS par vainqueur
+   * correctement pronostiqué (comparaison ensembliste, indépendante de la
+   * position dans le tableau).
    */
-  WC.totalPoints = function (player, results, bonusResults) {
+  WC.knockoutPoints = function (playerBracket, resultBracket) {
+    if (!playerBracket || !resultBracket || !resultBracket.win) return 0;
+    let pts = 0;
+    WC.KO_ROUNDS.forEach((r) => {
+      const real = (resultBracket.win[r.key] || []).filter(Boolean).map(norm);
+      if (!real.length) return;
+      const realSet = new Set(real);
+      const mine = (playerBracket.win && playerBracket.win[r.key]) || [];
+      const counted = new Set();
+      mine.filter(Boolean).forEach((t) => {
+        const n = norm(t);
+        if (realSet.has(n) && !counted.has(n)) {
+          counted.add(n);
+          pts += WC.KO_POINTS[r.key];
+        }
+      });
+    });
+    return pts;
+  };
+
+  /**
+   * Total des points d'un joueur.
+   * player = { name, predictions:{id:{h,a}}, bonus:{topScorer}, bracket:{...} }
+   */
+  WC.totalPoints = function (player, results, bonusResults, bracketResults) {
     let matchPts = 0,
       exact = 0,
       good = 0,
@@ -55,7 +79,17 @@
       if (truth && guess && norm(truth) === norm(guess)) bonusPts += b.points;
     });
 
-    return { total: matchPts + bonusPts, matchPts, bonusPts, exact, good, played };
+    const koPts = WC.knockoutPoints(player.bracket, bracketResults);
+
+    return {
+      total: matchPts + bonusPts + koPts,
+      matchPts,
+      bonusPts,
+      koPts,
+      exact,
+      good,
+      played,
+    };
   };
 
   function norm(s) {

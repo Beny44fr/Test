@@ -5,13 +5,17 @@
   const WC = (window.WC = window.WC || {});
   const KEY = "wc2026.v1";
 
+  const emptyBracket = () => ({ teams: [], win: { r32: [], r16: [], qf: [], sf: [], final: [] } });
+
   const blank = () => ({
     me: { name: "" },
     predictions: {}, // { matchId: {h,a} }
-    bonus: {}, // { champion, finalist, topScorer }
+    bonus: {}, // { topScorer }
+    bracket: emptyBracket(), // tableau final pronostiqué
     results: {}, // résultats réels saisis par l'organisateur
     bonusResults: {},
-    league: [], // [{ name, predictions, bonus }]
+    bracketResults: emptyBracket(), // vrai tableau final
+    league: [], // [{ name, predictions, bonus, bracket }]
   });
 
   WC.store = {
@@ -35,6 +39,7 @@
       localStorage.removeItem(KEY);
     },
     blank,
+    emptyBracket,
   };
 
   /* ---- Encodage Base64 URL-safe compatible Unicode ---- */
@@ -52,20 +57,22 @@
     return new TextDecoder().decode(bytes);
   }
 
-  // Un joueur partage : nom + pronos + bonus
+  // Un joueur partage : nom + pronos de groupe + bonus + tableau final
   WC.encodePlayer = function (player) {
     const payload = {
-      v: 1,
+      v: 2,
       n: player.name,
       p: player.predictions || {},
       b: player.bonus || {},
+      k: player.bracket || emptyBracket(),
     };
     return b64encode(JSON.stringify(payload));
   };
 
   WC.decodePlayer = function (code) {
     const obj = JSON.parse(b64decode(code.trim()));
-    if (!obj || obj.v !== 1 || typeof obj.n !== "string") throw new Error("Code invalide");
-    return { name: obj.n, predictions: obj.p || {}, bonus: obj.b || {} };
+    if (!obj || typeof obj.n !== "string") throw new Error("Code invalide");
+    const bracket = obj.k && obj.k.win ? obj.k : emptyBracket();
+    return { name: obj.n, predictions: obj.p || {}, bonus: obj.b || {}, bracket };
   };
 })();
