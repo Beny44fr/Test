@@ -1015,20 +1015,32 @@
   }
 
   /* ---------------- Synchronisation API des résultats ---------------- */
-  async function doApiSync() {
-    const cfg = state.apiCfg || WC.api.defaults();
-    toast("Synchronisation…");
+  async function doApiSync(opts) {
+    const silent = !!(opts && opts.silent);
+    const cfg = state.apiCfg || (state.apiCfg = WC.api.defaults());
+    cfg._lastTs = Date.now();
+    if (!silent) toast("Synchronisation…");
     try {
       const res = await WC.api.sync(cfg, state);
       cfg.lastSync = new Date().toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-      state.apiCfg = cfg;
       save();
-      toast(`${res.finished} match(s) de poule · ${res.ko} en phase finale`);
+      if (!silent) toast(`${res.finished} match(s) de poule · ${res.ko} en phase finale`);
+      else if (res.finished || res.ko || res.updated) toast("Résultats synchronisés");
       render();
     } catch (e) {
-      console.warn(e);
-      alert("Échec de la synchronisation : " + (e && e.message ? e.message : e) + "\n\nVérifie les Réglages API (fournisseur, clé, identifiant de compétition, saison) et ta connexion.");
+      console.warn("Synchro API échouée", e);
+      if (!silent)
+        alert("Échec de la synchronisation : " + (e && e.message ? e.message : e) + "\n\nVérifie les Réglages API (fournisseur, clé, identifiant de compétition, saison) et ta connexion.");
     }
+  }
+
+  // Synchro automatique (démarrage + périodique), silencieuse et limitée en fréquence
+  function autoSync() {
+    const cfg = state.apiCfg || WC.api.defaults();
+    if (cfg.auto === false) return;
+    const dueMs = (Number(cfg.interval) || 15) * 60000;
+    if (Date.now() - (cfg._lastTs || 0) < dueMs) return;
+    doApiSync({ silent: true });
   }
 
   function openApiSettings() {
@@ -1050,6 +1062,9 @@
         <input class="input" data-cfg="league" value="${esc(cfg.league)}" />
         <label class="field-lab">Saison</label>
         <input class="input" data-cfg="season" value="${esc(cfg.season)}" />
+        <label class="check-row"><input type="checkbox" data-cfg="auto" ${cfg.auto !== false ? "checked" : ""}/> Synchronisation automatique</label>
+        <label class="field-lab">Intervalle (minutes)</label>
+        <input class="input" data-cfg="interval" inputmode="numeric" value="${esc(String(cfg.interval || 15))}" />
         <button class="btn btn-primary full" data-cfg-save>Enregistrer</button>
         <button class="btn btn-ghost full" data-cfg-test>Tester la connexion</button>
         <p class="hint">L'app associe les matchs par nom d'équipe et met aussi à jour dates et villes. Les scores des matchs terminés alimentent le classement.</p>
@@ -1057,7 +1072,9 @@
     m.addEventListener("click", async (e) => {
       if (e.target === m || e.target.hasAttribute("data-close")) return m.remove();
       const read = () => {
-        m.querySelectorAll("[data-cfg]").forEach((el) => (cfg[el.dataset.cfg] = el.value.trim()));
+        m.querySelectorAll("[data-cfg]").forEach((el) => {
+          cfg[el.dataset.cfg] = el.type === "checkbox" ? el.checked : el.value.trim();
+        });
         return cfg;
       };
       if (e.target.hasAttribute("data-cfg-save")) {
@@ -1085,4 +1102,7 @@
   checkUrlImport();
   render();
   if (!state.onboarded) openOnboarding();
+  // Importe automatiquement le calendrier (dates/villes/horaires) et les résultats
+  autoSync();
+  setInterval(autoSync, 60000);
 })();
