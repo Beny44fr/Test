@@ -6,6 +6,8 @@
   let state = WC.store.load();
   let view = "home";
   let filterGroup = "A";
+  let predictPhase = "groups"; // "groups" | "bracket"
+  let koRound = "r32"; // tour affiché dans le tableau final
   let resultsMode = false; // dans l'onglet Pronos : false = mes pronos, true = saisie résultats
 
   const app = document.getElementById("app");
@@ -29,7 +31,7 @@
     t._t = setTimeout(() => t.classList.remove("show"), 2200);
   };
 
-  const me = () => ({ name: state.me.name || "Moi", predictions: state.predictions, bonus: state.bonus });
+  const me = () => ({ name: state.me.name || "Moi", predictions: state.predictions, bonus: state.bonus, bracket: state.bracket });
   const allPlayers = () => [me(), ...state.league];
   const hasResults = () => WC.MATCHES.some((m) => WC.isFilled(state.results[m.id]));
 
@@ -65,6 +67,11 @@
     const days = Math.max(0, Math.ceil((KICKOFF - new Date()) / 86400000));
     const filled = WC.MATCHES.filter((m) => WC.isFilled(state.predictions[m.id])).length;
     const pct = Math.round((filled / WC.MATCHES.length) * 100);
+    const koFilled = (state.bracket.win.final || []).filter(Boolean).length
+      ? "Champion désigné"
+      : (state.bracket.teams || []).filter(Boolean).length
+      ? "En cours"
+      : "À remplir";
     const name = state.me.name || "";
     return `
       <header class="hero">
@@ -92,7 +99,8 @@
           <span class="pill">${filled}/${WC.MATCHES.length}</span>
         </div>
         <div class="progress"><div class="progress-bar" style="width:${pct}%"></div></div>
-        <button class="btn btn-primary full" data-view="predict">${filled ? "Continuer mes pronos" : "Commencer mes pronos"} ${WC.icon("arrowRight", 18)}</button>
+        <button class="btn btn-primary full" data-act="goGroups">${filled ? "Continuer mes pronos" : "Commencer mes pronos"} ${WC.icon("arrowRight", 18)}</button>
+        <button class="btn btn-ghost full" data-act="goBracket">${WC.icon("trophy", 16)} Tableau final — ${koFilled}</button>
       </section>
 
       <section class="grid2">
@@ -102,25 +110,39 @@
         <button class="tile" data-act="rules"><span class="tile-ic">${WC.icon("book", 26)}</span>Règles</button>
       </section>
 
+      <div class="reset-row">
+        <button class="link-btn danger" data-act="resetMine">${WC.icon("x", 14)} Réinitialiser mes pronostics</button>
+      </div>
       <p class="foot">Données : tirage officiel du 5 déc. 2025 · dates indicatives</p>
     `;
   };
 
   views.predict = function () {
+    const subTabs = `
+      <div class="subtabs">
+        <button class="subtab ${predictPhase === "groups" ? "active" : ""}" data-phase="groups">${WC.icon("ball", 16)} Phase de groupes</button>
+        <button class="subtab ${predictPhase === "bracket" ? "active" : ""}" data-phase="bracket">${WC.icon("trophy", 16)} Tableau final</button>
+      </div>`;
+
+    const head = `
+      <header class="topbar">
+        <h2>${resultsMode ? "Saisie des résultats" : "Mes pronostics"}</h2>
+      </header>
+      ${resultsMode ? `<p class="banner">Mode organisateur — saisis ici les vrais résultats pour calculer le classement.</p>` : ""}
+      ${subTabs}`;
+
+    if (predictPhase === "bracket") return head + bracketView(resultsMode);
+
     const store = resultsMode ? state.results : state.predictions;
     const matches = WC.MATCHES.filter((m) => m.group === filterGroup);
     const groupChips = WC.GROUPS.map(
       (g) => `<button class="chip ${g.letter === filterGroup ? "active" : ""}" data-group="${g.letter}">${g.letter}</button>`
     ).join("");
-
     const filled = WC.MATCHES.filter((m) => WC.isFilled(store[m.id])).length;
 
     return `
-      <header class="topbar">
-        <h2>${resultsMode ? "Saisie des résultats" : "Mes pronostics"}</h2>
-        <span class="pill">${filled}/${WC.MATCHES.length}</span>
-      </header>
-      ${resultsMode ? `<p class="banner">Mode organisateur — saisis les vrais scores pour calculer le classement.</p>` : ""}
+      ${head}
+      <div class="phase-meta"><span class="pill">${filled}/${WC.MATCHES.length} matchs</span></div>
       <div class="chips">${groupChips}</div>
       <div class="match-list">
         ${matches.map((m) => matchCard(m, store)).join("")}
@@ -133,6 +155,103 @@
       }
     `;
   };
+
+  /* ---------------- Tableau final (phases finales) ---------------- */
+  function bracketView(isResults) {
+    const B = isResults ? state.bracketResults : state.bracket;
+    if (!B.win) Object.assign(B, WC.store.emptyBracket());
+    const round = WC.KO_ROUNDS.find((r) => r.key === koRound) || WC.KO_ROUNDS[0];
+
+    const roundChips = WC.KO_ROUNDS.map(
+      (r) => `<button class="chip chip-wide ${r.key === round.key ? "active" : ""}" data-round-tab="${r.key}">${r.short}</button>`
+    ).join("");
+
+    // Récupère les deux équipes d'un match du tour courant
+    const teamsOf = (i) => {
+      if (round.key === "r32") return [B.teams[i * 2] || "", B.teams[i * 2 + 1] || ""];
+      const pw = B.win[round.prev] || [];
+      return [pw[i * 2] || "", pw[i * 2 + 1] || ""];
+    };
+
+    const champion = (B.win.final || [])[0];
+    const banner = champion
+      ? `<div class="champ-banner">${WC.icon("trophy", 20)} Champion ${isResults ? "" : "pronostiqué"} : <b>${flagName(champion)}</b></div>`
+      : "";
+
+    let cards = "";
+    for (let i = 0; i < round.n; i++) {
+      const [a, b] = teamsOf(i);
+      const winner = (B.win[round.key] || [])[i] || "";
+      cards += koMatchCard(round, i, a, b, winner, isResults);
+    }
+
+    // Petite finale (3e place) : affichée dans l'onglet Finale
+    if (round.key === "final") {
+      const l0 = sfLoserOf(B, 0), l1 = sfLoserOf(B, 1);
+      const tw = (B.win.third || [])[0] || "";
+      cards += `<div class="ko-subhead">${WC.icon("medal", 16)} Petite finale — 3e place <span class="pts">+${WC.THIRD_POINTS}</span></div>`;
+      cards += koMatchCard({ key: "third" }, 0, l0, l1, tw, isResults);
+      if (tw) {
+        const third = `<span class="champ-third">${WC.icon("medal", 16)} 3e place : <b>${flagName(tw)}</b></span>`;
+        cards += `<div class="ko-thirdline">${third}</div>`;
+      }
+    }
+
+    const prefill = isResults
+      ? ""
+      : `<button class="btn btn-ghost full" data-act="prefillBracket">${WC.icon("ball", 16)} Pré-remplir les 16es depuis mes pronos de groupes</button>`;
+
+    return `
+      <p class="hint ko-hint">Choisis les 32 qualifiés en 16es, puis fais avancer ton tableau jusqu'au sacre. Barème : ${WC.KO_POINTS.r32} pts par qualifié en 8es, ${WC.KO_POINTS.r16} en quarts, ${WC.KO_POINTS.qf} en demies, ${WC.KO_POINTS.sf} par finaliste, ${WC.THIRD_POINTS} pts pour la 3e place, ${WC.KO_POINTS.final} pts pour le vainqueur.</p>
+      ${banner}
+      <div class="chips">${roundChips}</div>
+      ${round.key === "r32" ? prefill : ""}
+      <div class="match-list">${cards}</div>
+      ${
+        isResults
+          ? ""
+          : `<button class="btn btn-primary full" data-act="share">${WC.icon("share", 18)} Partager mes pronos</button>`
+      }
+    `;
+  }
+
+  function koMatchCard(round, i, a, b, winner, isResults) {
+    const ds = isResults ? "koResult" : "ko";
+    const isR32 = round.key === "r32";
+    const cell = (team, slot) => {
+      if (isR32) {
+        return `<select class="ko-select" data-act="koTeam" data-store="${ds}" data-slot="${i * 2 + slot}">
+            ${teamOptions(team)}
+          </select>`;
+      }
+      return `<span class="ko-team-label">${team ? flagName(team) : '<span class="muted">—</span>'}</span>`;
+    };
+    const advBtn = (team) =>
+      `<button class="ko-adv ${winner && winner === team ? "win" : ""}" data-act="koWin" data-store="${ds}" data-round="${round.key}" data-idx="${i}" data-team="${esc(team)}" ${team ? "" : "disabled"} aria-label="faire avancer">${WC.icon("check", 14)}</button>`;
+    return `
+      <div class="ko-match ${winner ? "decided" : ""}">
+        <span class="ko-num">M${i + 1}</span>
+        <div class="ko-side ${winner === a ? "is-win" : ""}">${cell(a, 0)}${advBtn(a)}</div>
+        <div class="ko-side ${winner === b ? "is-win" : ""}">${cell(b, 1)}${advBtn(b)}</div>
+      </div>`;
+  }
+
+  function teamOptions(sel) {
+    return (
+      `<option value="">— équipe —</option>` +
+      WC.GROUPS.map(
+        (g) =>
+          `<optgroup label="Groupe ${g.letter}">` +
+          g.teams.map((t) => `<option value="${esc(t.name)}" ${sel === t.name ? "selected" : ""}>${esc(t.name)}</option>`).join("") +
+          `</optgroup>`
+      ).join("")
+    );
+  }
+
+  function flagName(name) {
+    const t = WC.TEAM_BY_NAME[name];
+    return t ? `${WC.flag(t.code)}<span class="tname">${esc(name)}</span>` : esc(name);
+  }
 
   function matchCard(m, store) {
     const v = store[m.id] || {};
@@ -191,7 +310,7 @@
         </div>`;
     }
     const rows = allPlayers()
-      .map((p) => ({ name: p.name, ...WC.totalPoints(p, state.results, state.bonusResults) }))
+      .map((p) => ({ name: p.name, ...WC.totalPoints(p, state.results, state.bonusResults, state.bracketResults) }))
       .sort((a, b) => b.total - a.total || b.exact - a.exact);
     return `
       <header class="topbar"><h2>Classement</h2><span class="pill">${rows.length} joueur${rows.length > 1 ? "s" : ""}</span></header>
@@ -201,13 +320,13 @@
             (r, i) => `
           <div class="rank-row ${r.name === (state.me.name || "Moi") ? "is-me" : ""}">
             <div class="rank-pos rank-${i + 1 <= 3 ? i + 1 : "n"}">${i + 1 <= 3 ? WC.icon("trophy", 18) : i + 1}</div>
-            <div class="rank-name">${esc(r.name)}<span class="rank-sub">${r.exact} score${r.exact > 1 ? "s" : ""} exact${r.exact > 1 ? "s" : ""} · ${r.played} match${r.played > 1 ? "s" : ""}</span></div>
+            <div class="rank-name">${esc(r.name)}<span class="rank-sub">${r.matchPts} groupes · ${r.koPts} tableau${r.bonusPts ? ` · ${r.bonusPts} bonus` : ""} · ${r.exact} exact${r.exact > 1 ? "s" : ""}</span></div>
             <div class="rank-pts">${r.total}<span>pts</span></div>
           </div>`
           )
           .join("")}
       </div>
-      <p class="foot">Barème : score exact ${WC.POINTS.exact} pts · bonne différence ${WC.POINTS.diff} pts · bon résultat ${WC.POINTS.outcome} pt</p>
+      <p class="foot">Barème : score exact ${WC.POINTS.exact} pts · bonne différence ${WC.POINTS.diff} pts · bon résultat ${WC.POINTS.outcome} pt · tableau final ${WC.KO_POINTS.r32}→${WC.KO_POINTS.final} pts</p>
     `;
   };
 
@@ -270,7 +389,7 @@
   }
 
   document.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-view],[data-act],[data-group]");
+    const b = e.target.closest("[data-view],[data-act],[data-group],[data-phase],[data-round-tab]");
     if (!b) return;
 
     if (b.dataset.view) {
@@ -282,8 +401,51 @@
       filterGroup = b.dataset.group;
       return render();
     }
+    if (b.dataset.phase) {
+      predictPhase = b.dataset.phase;
+      return render();
+    }
+    if (b.dataset.roundTab) {
+      koRound = b.dataset.roundTab;
+      return render();
+    }
 
     const act = b.dataset.act;
+    if (act === "goGroups") {
+      resultsMode = false;
+      predictPhase = "groups";
+      view = "predict";
+      return render();
+    }
+    if (act === "goBracket") {
+      resultsMode = false;
+      predictPhase = "bracket";
+      view = "predict";
+      return render();
+    }
+    if (act === "koWin") {
+      const target = b.dataset.store === "koResult" ? state.bracketResults : state.bracket;
+      const arr = (target.win[b.dataset.round] = target.win[b.dataset.round] || []);
+      const idx = +b.dataset.idx;
+      arr[idx] = arr[idx] === b.dataset.team ? "" : b.dataset.team; // re-tap = annuler
+      pruneBracket(target);
+      save();
+      return render();
+    }
+    if (act === "prefillBracket") {
+      return prefillBracket();
+    }
+    if (act === "resetMine") {
+      if (confirm("Réinitialiser tous TES pronostics (groupes + tableau final) ? Le classement et les résultats ne sont pas touchés.")) {
+        state.predictions = {};
+        state.bonus = {};
+        state.bracket = WC.store.emptyBracket();
+        save();
+        toast("Pronostics réinitialisés");
+        render();
+      }
+      return;
+    }
     if (act === "inc" || act === "dec") {
       const inp = document.querySelector(`.score[data-mid="${b.dataset.mid}"][data-side="${b.dataset.side}"][data-store="${b.dataset.store}"]`);
       let n = parseInt(inp.value, 10);
@@ -331,8 +493,74 @@
       const target = el.dataset.store === "bonusResult" ? state.bonusResults : state.bonus;
       target[el.dataset.bonus] = el.value;
       save();
+    } else if (el.dataset.act === "koTeam") {
+      const target = el.dataset.store === "koResult" ? state.bracketResults : state.bracket;
+      target.teams[+el.dataset.slot] = el.value;
+      pruneBracket(target);
+      save();
+      render();
     }
   });
+
+  // Construit les 16es à partir des pronostics de la phase de groupes
+  function prefillBracket() {
+    const q = WC.qualifiers(state.predictions);
+    if (!q.winners.filter(Boolean).length) {
+      return toast("Remplis d'abord des pronos de groupes");
+    }
+    const already = (state.bracket.teams || []).filter(Boolean).length;
+    if (already && !confirm("Remplacer ton tableau actuel par les qualifiés issus de tes pronos de groupes ?")) return;
+
+    // 16 affiches : 1ers + 4 meilleurs 3es face aux 2es + 4 autres 3es
+    const seedA = [...q.winners, ...q.thirds.slice(0, 4)]; // 16
+    const seedB = [...q.runners, ...q.thirds.slice(4, 8)]; // 16
+    const teams = [];
+    for (let i = 0; i < 16; i++) {
+      teams[i * 2] = seedA[i] ? seedA[i].name : "";
+      teams[i * 2 + 1] = seedB[i] ? seedB[i].name : "";
+    }
+    state.bracket.teams = teams;
+    // On repart d'un tableau neuf côté vainqueurs
+    state.bracket.win = WC.store.emptyBracket().win;
+    pruneBracket(state.bracket);
+    save();
+    koRound = "r32";
+    toast(q.complete ? "16es pré-remplis depuis tes pronos" : "Pré-rempli (pronos de groupes incomplets)");
+    render();
+  }
+
+  // Perdant de la demi-finale i (pour la petite finale)
+  function sfLoserOf(B, i) {
+    const pw = (B.win && B.win.qf) || [];
+    const a = pw[i * 2] || "";
+    const b = pw[i * 2 + 1] || "";
+    const w = (B.win.sf || [])[i];
+    if (!w) return "";
+    return w === a ? b : a;
+  }
+
+  // Nettoie les vainqueurs devenus incohérents après un changement amont
+  function pruneBracket(B) {
+    if (!B.win) Object.assign(B, WC.store.emptyBracket());
+    WC.KO_ROUNDS.forEach((r) => {
+      const w = (B.win[r.key] = B.win[r.key] || []);
+      for (let i = 0; i < r.n; i++) {
+        let a, b;
+        if (r.key === "r32") {
+          a = B.teams[i * 2] || "";
+          b = B.teams[i * 2 + 1] || "";
+        } else {
+          const pw = B.win[r.prev] || [];
+          a = pw[i * 2] || "";
+          b = pw[i * 2 + 1] || "";
+        }
+        if (w[i] && w[i] !== a && w[i] !== b) w[i] = "";
+      }
+    });
+    // Petite finale : le 3e doit être l'un des deux perdants de demie
+    const tw = (B.win.third || [])[0];
+    if (tw && tw !== sfLoserOf(B, 0) && tw !== sfLoserOf(B, 1)) B.win.third = [];
+  }
 
   function updateProgress() {
     const pill = document.querySelector(".topbar .pill");
@@ -425,6 +653,16 @@
           <li><b>${WC.POINTS.outcome} pt</b> — Bon résultat (vainqueur ou nul) seulement</li>
           <li><b>0 pt</b> — Mauvais pronostic</li>
         </ul>
+        <h3>Tableau final (phases finales)</h3>
+        <ul class="rules">
+          <li><b>+${WC.KO_POINTS.r32}</b> — par équipe correctement qualifiée en 8es</li>
+          <li><b>+${WC.KO_POINTS.r16}</b> — par équipe en quarts de finale</li>
+          <li><b>+${WC.KO_POINTS.qf}</b> — par équipe en demi-finales</li>
+          <li><b>+${WC.KO_POINTS.sf}</b> — par finaliste</li>
+          <li><b>+${WC.THIRD_POINTS}</b> — bonne 3e place (petite finale)</li>
+          <li><b>+${WC.KO_POINTS.final}</b> — pour le champion du monde</li>
+        </ul>
+        <p class="hint">Le tableau est noté par équipe : peu importe la position exacte, tu marques dès qu'une équipe que tu as fait avancer atteint réellement le tour. Astuce : le bouton « Pré-remplir les 16es » place automatiquement les qualifiés calculés depuis tes pronos de groupes — tu peux ensuite tout ajuster.</p>
         <h3>Bonus (fin de tournoi)</h3>
         <ul class="rules">
           ${WC.BONUS.map((b) => `<li><b>+${b.points}</b> — ${b.label}</li>`).join("")}
