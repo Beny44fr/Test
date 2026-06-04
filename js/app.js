@@ -12,6 +12,8 @@
   let koRound = "r32"; // tour affiché dans le tableau final
   const scorerOther = {}; // mode "Autre" du buteur, par contexte (bonus/bonusResult)
   let resultsMode = false; // dans l'onglet Pronos : false = mes pronos, true = saisie résultats
+  let syncing = false; // synchro API en cours (états de chargement)
+  let syncError = ""; // dernier message d'erreur de synchro
 
   const app = document.getElementById("app");
   const KICKOFF = new Date("2026-06-11T16:00:00Z");
@@ -276,11 +278,22 @@
   // Barre de synchronisation API (mode résultats) — détaillée dans api.js
   function syncBar() {
     const last = state.apiCfg && state.apiCfg.lastSync;
+    if (syncing) {
+      return `
+        <div class="syncbar">
+          <button class="btn btn-primary" disabled><span class="spinner"></span> Synchronisation…</button>
+          <button class="link-btn" data-act="apiSettings">Réglages API</button>
+          <div class="skeleton-list"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
+        </div>`;
+    }
+    const status = syncError
+      ? `<div class="sync-err">${WC.icon("lock", 13)} ${esc(syncError)} <button class="link-btn" data-act="apiSync">Réessayer</button></div>`
+      : `<span class="sync-info">${last ? `Dernière synchro : ${esc(last)}` : "Jamais synchronisé"}</span>`;
     return `
       <div class="syncbar">
         <button class="btn btn-primary" data-act="apiSync">${WC.icon("download", 16)} Synchroniser les résultats</button>
         <button class="link-btn" data-act="apiSettings">Réglages API</button>
-        ${last ? `<span class="sync-info">Dernière synchro : ${esc(last)}</span>` : `<span class="sync-info">Jamais synchronisé</span>`}
+        ${status}
       </div>`;
   }
 
@@ -479,7 +492,8 @@
           )
           .join("")}
       </div>
-      <p class="foot">Barème : score exact ${WC.POINTS.exact} pts · bonne différence ${WC.POINTS.diff} pts · bon résultat ${WC.POINTS.outcome} pt · tableau final ${WC.KO_POINTS.r32}→${WC.KO_POINTS.final} pts</p>
+      ${rows.length >= 2 ? `<button class="btn btn-ghost full" data-act="versus">${WC.icon("users", 16)} Face-à-face entre deux joueurs</button>` : ""}
+      <p class="foot">Touche un joueur pour le détail de ses points. Barème : score exact ${WC.POINTS.exact} pts · différence ${WC.POINTS.diff} · résultat ${WC.POINTS.outcome} · tableau ${WC.KO_POINTS.r32}→${WC.KO_POINTS.final}</p>
     `;
   };
 
@@ -658,6 +672,10 @@
       openPlayerDetail(b.dataset.name);
     } else if (act === "matchDetail") {
       openMatchDetail(b.dataset.mid);
+    } else if (act === "versus") {
+      openVersus(state.me.name || "Moi", null);
+    } else if (act === "versusFrom") {
+      openVersus(b.dataset.name, null);
     } else if (act === "share") {
       shareMe();
     } else if (act === "copyLink") {
@@ -978,15 +996,19 @@
           <span class="dr-pts ${ptsClass(res.points)}">${res.points > 0 ? "+" + res.points : "0"}</span>
         </div>`);
     });
+    const rate = t.played ? Math.round((t.good / t.played) * 100) : 0;
+    const canVs = allPlayers().length >= 2;
     const inner = `
       <h2 class="card-head">${WC.icon("user", 20)} ${esc(player.name || "Moi")}</h2>
       <div class="detail-totals">
         <span class="detail-chip">Total <b>${t.total}</b></span>
+        <span class="detail-chip">Réussite ${rate}%</span>
+        <span class="detail-chip">${t.exact} exact${t.exact > 1 ? "s" : ""}</span>
         <span class="detail-chip">Groupes ${t.matchPts}</span>
         <span class="detail-chip">Tableau ${t.koPts}</span>
         <span class="detail-chip">Bonus ${t.bonusPts}</span>
-        <span class="detail-chip">${t.exact} exact${t.exact > 1 ? "s" : ""}</span>
       </div>
+      ${canVs ? `<button class="btn btn-ghost full" data-act="versusFrom" data-name="${esc(player.name || "Moi")}">${WC.icon("users", 16)} Comparer avec un joueur</button>` : ""}
       ${rows.length ? `<div class="detail-list">${rows.join("")}</div>` : `<p class="hint">Aucun match terminé pour l'instant.</p>`}`;
     openModal(inner);
   }
@@ -1018,6 +1040,68 @@
       <p class="hint">${fmtDate(effDate(mm))}${effTime(mm) ? ` · ${effTime(mm)}` : ""} · Résultat : <b>${scoreStr(r)}</b></p>
       <div class="detail-list">${list}</div>`;
     openModal(inner);
+  }
+
+  /* ---------------- Statistiques & face-à-face ---------------- */
+  function statsFor(p) {
+    const t = WC.totalPoints(p, state.results, state.bonusResults, state.bracketResults);
+    t.rate = t.played ? Math.round((t.good / t.played) * 100) : 0;
+    return t;
+  }
+
+  function versusBody(aName, bName) {
+    const A = allPlayers().find((p) => (p.name || "Moi") === aName);
+    const B = allPlayers().find((p) => (p.name || "Moi") === bName);
+    if (!A || !B) return `<p class="hint">Sélectionne deux joueurs.</p>`;
+    if (aName === bName) return `<p class="hint">Choisis deux joueurs différents.</p>`;
+    const sA = statsFor(A), sB = statsFor(B);
+    let wa = 0, wb = 0, eq = 0;
+    WC.MATCHES.forEach((mm) => {
+      const r = state.results[mm.id];
+      if (!WC.isFilled(r)) return;
+      const pa = WC.scoreMatch((A.predictions || {})[mm.id], r).points;
+      const pb = WC.scoreMatch((B.predictions || {})[mm.id], r).points;
+      if (pa > pb) wa++; else if (pb > pa) wb++; else eq++;
+    });
+    const row = (label, va, vb, suf) => {
+      suf = suf || "";
+      const w = va === vb ? "" : va > vb ? "a" : "b";
+      return `<div class="vs-row"><span class="vs-a ${w === "a" ? "win" : ""}">${va}${suf}</span><span class="vs-lbl">${label}</span><span class="vs-b ${w === "b" ? "win" : ""}">${vb}${suf}</span></div>`;
+    };
+    return `
+      <div class="vs-head">
+        <div class="vs-h2h"><b>${esc(aName)}</b> ${wa} – ${wb} <b>${esc(bName)}</b>${eq ? ` · ${eq} nul${eq > 1 ? "s" : ""}` : ""}</div>
+        <p class="hint">Confrontations sur les matchs terminés (qui a marqué le plus de points).</p>
+      </div>
+      ${row("Total", sA.total, sB.total, " pts")}
+      ${row("Taux de réussite", sA.rate, sB.rate, "%")}
+      ${row("Scores exacts", sA.exact, sB.exact)}
+      ${row("Bons pronos", sA.good, sB.good)}
+      ${row("Pts groupes", sA.matchPts, sB.matchPts)}
+      ${row("Pts tableau", sA.koPts, sB.koPts)}
+      ${row("Pts bonus", sA.bonusPts, sB.bonusPts)}`;
+  }
+
+  function openVersus(aName, bName) {
+    const names = allPlayers().map((p) => p.name || "Moi");
+    if (names.length < 2) return toast("Ajoute au moins un collègue à ta ligue");
+    document.querySelectorAll(".modal").forEach((x) => x.remove());
+    aName = names.includes(aName) ? aName : names[0];
+    bName = names.includes(bName) && bName !== aName ? bName : names.find((n) => n !== aName) || names[0];
+    const opts = (cur) => names.map((n) => `<option ${n === cur ? "selected" : ""}>${esc(n)}</option>`).join("");
+    const m = openModal(`
+      <h2 class="card-head">${WC.icon("users", 20)} Face-à-face</h2>
+      <div class="vs-pick">
+        <select class="input" data-vs="a">${opts(aName)}</select>
+        <span class="vs-mid">VS</span>
+        <select class="input" data-vs="b">${opts(bName)}</select>
+      </div>
+      <div id="vs-body">${versusBody(aName, bName)}</div>`);
+    m.addEventListener("change", () => {
+      const a = m.querySelector('[data-vs="a"]').value;
+      const b = m.querySelector('[data-vs="b"]').value;
+      m.querySelector("#vs-body").innerHTML = versusBody(a, b);
+    });
   }
 
   /* ---------------- Modale règles ---------------- */
@@ -1121,22 +1205,39 @@
   }
 
   /* ---------------- Synchronisation API des résultats ---------------- */
+  function humanizeSyncError(e) {
+    const msg = (e && e.message) || String(e);
+    if (/failed to fetch|networkerror|load failed|fetch/i.test(msg)) return "Impossible de joindre l'API (réseau ou CORS). Réessaie plus tard.";
+    if (/http 404/i.test(msg)) return "Compétition ou saison introuvable (vérifie l'idLeague et la saison).";
+    if (/http 4\d\d/i.test(msg)) return "Accès refusé par l'API (clé invalide ?).";
+    if (/http 5\d\d/i.test(msg)) return "L'API est momentanément indisponible.";
+    return "Échec de la synchronisation : " + msg;
+  }
+
   async function doApiSync(opts) {
     const silent = !!(opts && opts.silent);
     const cfg = state.apiCfg || (state.apiCfg = WC.api.defaults());
     cfg._lastTs = Date.now();
-    if (!silent) toast("Synchronisation…");
+    if (!silent) {
+      syncing = true;
+      syncError = "";
+      render();
+    }
     try {
       const res = await WC.api.sync(cfg, state);
       cfg.lastSync = new Date().toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
       save();
+      syncing = false;
       if (!silent) toast(`${res.finished} match(s) de poule · ${res.ko} en phase finale`);
       else if (res.finished || res.ko || res.updated) toast("Résultats synchronisés");
       render();
     } catch (e) {
       console.warn("Synchro API échouée", e);
-      if (!silent)
-        alert("Échec de la synchronisation : " + (e && e.message ? e.message : e) + "\n\nVérifie les Réglages API (fournisseur, clé, identifiant de compétition, saison) et ta connexion.");
+      syncing = false;
+      if (!silent) {
+        syncError = humanizeSyncError(e);
+        render();
+      }
     }
   }
 
