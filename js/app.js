@@ -40,10 +40,20 @@
   const allPlayers = () => [me(), ...state.league];
   const hasResults = () => WC.MATCHES.some((m) => WC.isFilled(state.results[m.id]));
 
-  // Date / ville effectives (surchargées par l'API si dispo)
+  // Date / heure / ville effectives (surchargées par l'API si dispo)
   const effDate = (m) => (state.schedule[m.id] && state.schedule[m.id].date) || m.date;
+  const effTime = (m) => (state.schedule[m.id] && state.schedule[m.id].time) || m.time || "";
   const effCity = (m) => state.schedule[m.id] && state.schedule[m.id].city;
   const uniqueDates = () => [...new Set(WC.MATCHES.map(effDate))].sort();
+
+  // Instant de coup d'envoi d'un match (timestamp API prioritaire, sinon date+heure locale)
+  function matchStart(m) {
+    const sc = state.schedule[m.id] || {};
+    if (sc.ts) return new Date(sc.ts).getTime();
+    return new Date(`${effDate(m)}T${(effTime(m) || "12:00")}:00`).getTime();
+  }
+  const matchStarted = (m) => Date.now() >= matchStart(m);
+  const compStarted = () => Date.now() >= KICKOFF.getTime();
 
   // Tableau final calculé automatiquement depuis les pronos de groupes
   function computeR32(preds) {
@@ -69,10 +79,9 @@
     const items = [
       ["home", "home", "Accueil"],
       ["predict", "ball", "Pronos"],
-      ["scorer", "boot", "Buteur"],
-      ["ranking", "trophy", "Classt"],
+      ["ranking", "trophy", "Classement"],
       ["league", "users", "Ligue"],
-      ["results", "target", "Résult"],
+      ["results", "target", "Résultats"],
     ];
     document.getElementById("nav").innerHTML = items
       .map(
@@ -121,7 +130,7 @@
         <button class="btn btn-primary full" data-act="goGroups">${filled ? "Continuer mes pronos" : "Commencer mes pronos"} ${WC.icon("arrowRight", 18)}</button>
         <div class="btn-group">
           <button class="btn btn-ghost" data-act="goBracket">${WC.icon("trophy", 16)} Tableau final</button>
-          <button class="btn btn-ghost" data-view="scorer">${WC.icon("boot", 16)} Buteur</button>
+          <button class="btn btn-ghost" data-act="goScorer">${WC.icon("boot", 16)} Buteur</button>
         </div>
       </section>
 
@@ -141,9 +150,10 @@
 
   views.predict = function () {
     const subTabs = `
-      <div class="subtabs">
-        <button class="subtab ${predictPhase === "groups" ? "active" : ""}" data-phase="groups">${WC.icon("ball", 16)} Phase de groupes</button>
-        <button class="subtab ${predictPhase === "bracket" ? "active" : ""}" data-phase="bracket">${WC.icon("trophy", 16)} Tableau final</button>
+      <div class="subtabs subtabs-3">
+        <button class="subtab ${predictPhase === "groups" ? "active" : ""}" data-phase="groups">${WC.icon("ball", 16)} Groupes</button>
+        <button class="subtab ${predictPhase === "bracket" ? "active" : ""}" data-phase="bracket">${WC.icon("trophy", 16)} Tableau</button>
+        <button class="subtab ${predictPhase === "scorer" ? "active" : ""}" data-phase="scorer">${WC.icon("boot", 16)} Buteur</button>
       </div>`;
 
     const head = `
@@ -154,6 +164,7 @@
       ${subTabs}`;
 
     if (predictPhase === "bracket") return head + bracketView(resultsMode);
+    if (predictPhase === "scorer") return head + scorerView(resultsMode);
 
     const store = resultsMode ? state.results : state.predictions;
     const filled = WC.MATCHES.filter((m) => WC.isFilled(store[m.id])).length;
@@ -194,28 +205,37 @@
       <div class="match-list">
         ${matches.map((m) => matchCard(m, store)).join("")}
       </div>
-      ${
-        resultsMode
-          ? bonusBlock(state.bonusResults, true)
-          : `<button class="btn btn-primary full" data-act="share">${WC.icon("share", 18)} Partager mes pronos</button>`
-      }
+      ${resultsMode ? "" : `<button class="btn btn-primary full" data-act="share">${WC.icon("share", 18)} Partager mes pronos</button>`}
     `;
   };
 
-  /* ---------------- Onglet Meilleur buteur ---------------- */
-  views.scorer = function () {
-    const val = state.bonus.topScorer || "";
+  /* ---------------- Sous-onglet Meilleur buteur ---------------- */
+  function scorerView(isResults) {
+    const ds = isResults ? "bonusResult" : "bonus";
+    const store = isResults ? state.bonusResults : state.bonus;
+    const val = store.topScorer || "";
     const labels = WC.TOP_SCORER_LABELS;
     const inList = labels.includes(val);
-    const other = scorerOther.bonus || (!!val && !inList);
+    const other = scorerOther[ds] || (!!val && !inList);
     const bonusPts = (WC.BONUS.find((b) => b.id === "topScorer") || {}).points || 10;
+    const locked = !isResults && compStarted();
+
+    // Verrou : la compétition a commencé → pronostic de buteur figé
+    if (locked) {
+      return `
+        <section class="card lock-card">
+          <strong class="card-head">${WC.icon("lock", 18)} Buteur verrouillé</strong>
+          <p class="hint">La compétition a commencé : ton pronostic de meilleur buteur est désormais figé.</p>
+          <div class="lock-val">${val ? esc(val) : "Aucun buteur pronostiqué"}</div>
+        </section>`;
+    }
 
     const cards = WC.TOP_SCORERS.map((p) => {
       const label = WC.scorerLabel(p);
       const t = WC.TEAM_BY_NAME[p.team];
       const sel = !other && val === label;
       return `
-        <button class="scorer-card ${sel ? "sel" : ""}" data-act="pickScorer" data-label="${esc(label)}">
+        <button class="scorer-card ${sel ? "sel" : ""}" data-act="pickScorer" data-store="${ds}" data-label="${esc(label)}">
           <span class="sc-flag">${t ? WC.flag(t.code) : ""}</span>
           <span class="sc-txt"><span class="sc-name">${esc(p.name)}</span><span class="sc-team">${esc(p.team)}</span></span>
           <span class="sc-check">${sel ? WC.icon("check", 16) : ""}</span>
@@ -223,24 +243,24 @@
     }).join("");
 
     const otherCard = `
-      <button class="scorer-card ${other ? "sel" : ""}" data-act="pickScorerOther">
+      <button class="scorer-card ${other ? "sel" : ""}" data-act="pickScorerOther" data-store="${ds}">
         <span class="sc-flag">${WC.icon("user", 18)}</span>
         <span class="sc-txt"><span class="sc-name">Autre joueur</span><span class="sc-team">Saisie libre</span></span>
         <span class="sc-check">${other ? WC.icon("check", 16) : ""}</span>
       </button>`;
 
     const otherInput = other
-      ? `<input class="input scorer-other" data-scorer-text data-store="bonus" maxlength="40" placeholder="Nom du buteur…" value="${esc(val)}" />`
+      ? `<input class="input scorer-other" data-scorer-text data-store="${ds}" maxlength="40" placeholder="Nom du buteur…" value="${esc(val)}" />`
       : "";
 
     return `
-      <header class="topbar"><h2>Meilleur buteur</h2><span class="pill">+${bonusPts} pts</span></header>
-      <p class="hint sc-hint">Qui finira meilleur buteur de la Coupe du Monde ? Choisis un favori (ou saisis un autre joueur).</p>
+      <div class="phase-meta"><span class="pill">${isResults ? "Buteur réel" : "+" + bonusPts + " pts"}</span></div>
+      <p class="hint sc-hint">${isResults ? "Désigne le meilleur buteur réel du tournoi pour attribuer les points." : "Qui finira meilleur buteur de la Coupe du Monde ? Choisis un favori (ou saisis un autre joueur)."}</p>
       <div class="scorer-grid">${cards}${otherCard}</div>
       ${otherInput}
-      <button class="btn btn-primary full" data-act="share">${WC.icon("share", 18)} Partager mes pronos</button>
+      ${isResults ? "" : `<button class="btn btn-primary full" data-act="share">${WC.icon("share", 18)} Partager mes pronos</button>`}
     `;
-  };
+  }
 
   // Barre de synchronisation API (mode résultats) — détaillée dans api.js
   function syncBar() {
@@ -348,30 +368,37 @@
   function matchCard(m, store) {
     const v = store[m.id] || {};
     const ds = resultsMode ? "result" : "pred";
+    const locked = !resultsMode && matchStarted(m); // pronos figés une fois le match commencé
+
     const teamRow = (team, side) => {
       const filled = Number.isInteger(v[side]);
       const val = filled ? v[side] : "";
-      // Quand le score est vide, le bouton "−" est remplacé par un "0"
-      const left =
-        filled && v[side] >= 1
-          ? `<button class="step" data-act="dec" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="moins">${WC.icon("minus", 16)}</button>`
-          : `<button class="step step-zero" data-act="setzero" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="zéro">0</button>`;
+      const score = locked
+        ? `<span class="score-ro">${filled ? v[side] : "–"}</span>`
+        : `<div class="stepper">
+            ${
+              filled && v[side] >= 1
+                ? `<button class="step" data-act="dec" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="moins">${WC.icon("minus", 16)}</button>`
+                : `<button class="step step-zero" data-act="setzero" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="zéro">0</button>`
+            }
+            <input class="score" inputmode="numeric" maxlength="2" data-mid="${m.id}" data-side="${side}" data-store="${ds}" value="${val}" />
+            <button class="step" data-act="inc" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="plus">${WC.icon("plus", 16)}</button>
+          </div>`;
       return `
         <div class="m-team">
           ${WC.flag(team.code)}
           <span class="tname">${esc(team.name)}</span>
-          <div class="stepper">
-            ${left}
-            <input class="score" inputmode="numeric" maxlength="2" data-mid="${m.id}" data-side="${side}" data-store="${ds}" value="${val}" />
-            <button class="step" data-act="inc" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="plus">${WC.icon("plus", 16)}</button>
-          </div>
+          ${score}
         </div>`;
     };
+
     const done = WC.isFilled(v);
     const city = effCity(m);
+    const time = effTime(m);
+    const meta = `Groupe ${m.group} · J${m.matchday} · ${fmtDate(effDate(m))}${time ? ` · ${time}` : ""}${city ? ` · ${esc(city)}` : ""}`;
     return `
-      <div class="match ${done ? "done" : ""}" data-id="${m.id}">
-        <div class="match-meta">Groupe ${m.group} · J${m.matchday} · ${fmtDate(effDate(m))}${city ? ` · ${esc(city)}` : ""}</div>
+      <div class="match ${done ? "done" : ""} ${locked ? "locked" : ""}" data-id="${m.id}">
+        <div class="match-meta">${meta}${locked ? ` <span class="lock-tag">${WC.icon("lock", 12)} commencé</span>` : ""}</div>
         ${teamRow(m.home, "h")}
         ${teamRow(m.away, "a")}
       </div>`;
@@ -490,6 +517,11 @@
 
   /* ---------------- Interactions ---------------- */
   function setScore(store, mid, side, val) {
+    // Pronostic figé une fois le match commencé (la saisie des résultats reste possible)
+    if (store !== "result") {
+      const m = WC.MATCHES.find((x) => x.id === mid);
+      if (m && matchStarted(m)) return;
+    }
     const target = store === "result" ? state.results : state.predictions;
     target[mid] = target[mid] || {};
     if (val === "" || val == null) {
@@ -547,6 +579,12 @@
       view = "predict";
       return render();
     }
+    if (act === "goScorer") {
+      resultsMode = false;
+      predictPhase = "scorer";
+      view = "predict";
+      return render();
+    }
     if (act === "koWin") {
       const isRes = b.dataset.store === "koResult";
       const target = isRes ? state.bracketResults : state.bracket;
@@ -584,13 +622,17 @@
       refreshMatch(mid);
       updateProgress();
     } else if (act === "pickScorer") {
-      scorerOther.bonus = false;
-      state.bonus.topScorer = b.dataset.label;
+      const ds = b.dataset.store || "bonus";
+      const t = ds === "bonusResult" ? state.bonusResults : state.bonus;
+      scorerOther[ds] = false;
+      t.topScorer = b.dataset.label;
       save();
       render();
     } else if (act === "pickScorerOther") {
-      scorerOther.bonus = true;
-      if (WC.TOP_SCORER_LABELS.includes(state.bonus.topScorer)) state.bonus.topScorer = "";
+      const ds = b.dataset.store || "bonus";
+      const t = ds === "bonusResult" ? state.bonusResults : state.bonus;
+      scorerOther[ds] = true;
+      if (WC.TOP_SCORER_LABELS.includes(t.topScorer)) t.topScorer = "";
       save();
       render();
     } else if (act === "rules") {

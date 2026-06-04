@@ -57,8 +57,17 @@
         if (!match) return;
         const date = (ev.dateEvent || "").slice(0, 10);
         const city = ev.strCity || ev.strVenue || "";
-        if (date || city) {
-          state.schedule[match.id] = Object.assign({}, state.schedule[match.id], date ? { date } : {}, city ? { city } : {});
+        const time = (ev.strTime || "").slice(0, 5);
+        const ts = ev.strTimestamp || ev.strTimestampUtc || "";
+        if (date || city || time || ts) {
+          state.schedule[match.id] = Object.assign(
+            {},
+            state.schedule[match.id],
+            date ? { date } : {},
+            city ? { city } : {},
+            time ? { time } : {},
+            ts ? { ts } : {}
+          );
           updated++;
         }
         if (h != null && a != null) {
