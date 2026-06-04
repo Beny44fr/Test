@@ -9,22 +9,22 @@
 (function () {
   const WC = (window.WC = window.WC || {});
 
-  const t = (name, code) => ({ name, code });
+  const t = (name, code, en) => ({ name, code, en });
 
-  // 12 groupes de 4 équipes (code = drapeau image, cf. icons.js)
+  // 12 groupes de 4 équipes (code = drapeau image ; en = nom anglais pour l'API)
   WC.GROUPS = [
-    { letter: "A", teams: [t("Mexique","mx"), t("Afrique du Sud","za"), t("Corée du Sud","kr"), t("Tchéquie","cz")] },
-    { letter: "B", teams: [t("Canada","ca"), t("Bosnie-Herzégovine","ba"), t("Qatar","qa"), t("Suisse","ch")] },
-    { letter: "C", teams: [t("Brésil","br"), t("Maroc","ma"), t("Haïti","ht"), t("Écosse","gb-sct")] },
-    { letter: "D", teams: [t("États-Unis","us"), t("Paraguay","py"), t("Australie","au"), t("Turquie","tr")] },
-    { letter: "E", teams: [t("Allemagne","de"), t("Curaçao","cw"), t("Côte d'Ivoire","ci"), t("Équateur","ec")] },
-    { letter: "F", teams: [t("Pays-Bas","nl"), t("Japon","jp"), t("Suède","se"), t("Tunisie","tn")] },
-    { letter: "G", teams: [t("Belgique","be"), t("Égypte","eg"), t("Iran","ir"), t("Nouvelle-Zélande","nz")] },
-    { letter: "H", teams: [t("Espagne","es"), t("Cap-Vert","cv"), t("Arabie saoudite","sa"), t("Uruguay","uy")] },
-    { letter: "I", teams: [t("France","fr"), t("Sénégal","sn"), t("Irak","iq"), t("Norvège","no")] },
-    { letter: "J", teams: [t("Argentine","ar"), t("Algérie","dz"), t("Autriche","at"), t("Jordanie","jo")] },
-    { letter: "K", teams: [t("Portugal","pt"), t("RD Congo","cd"), t("Ouzbékistan","uz"), t("Colombie","co")] },
-    { letter: "L", teams: [t("Angleterre","gb-eng"), t("Croatie","hr"), t("Ghana","gh"), t("Panama","pa")] },
+    { letter: "A", teams: [t("Mexique","mx","Mexico"), t("Afrique du Sud","za","South Africa"), t("Corée du Sud","kr","South Korea"), t("Tchéquie","cz","Czechia")] },
+    { letter: "B", teams: [t("Canada","ca","Canada"), t("Bosnie-Herzégovine","ba","Bosnia and Herzegovina"), t("Qatar","qa","Qatar"), t("Suisse","ch","Switzerland")] },
+    { letter: "C", teams: [t("Brésil","br","Brazil"), t("Maroc","ma","Morocco"), t("Haïti","ht","Haiti"), t("Écosse","gb-sct","Scotland")] },
+    { letter: "D", teams: [t("États-Unis","us","United States"), t("Paraguay","py","Paraguay"), t("Australie","au","Australia"), t("Turquie","tr","Turkey")] },
+    { letter: "E", teams: [t("Allemagne","de","Germany"), t("Curaçao","cw","Curacao"), t("Côte d'Ivoire","ci","Ivory Coast"), t("Équateur","ec","Ecuador")] },
+    { letter: "F", teams: [t("Pays-Bas","nl","Netherlands"), t("Japon","jp","Japan"), t("Suède","se","Sweden"), t("Tunisie","tn","Tunisia")] },
+    { letter: "G", teams: [t("Belgique","be","Belgium"), t("Égypte","eg","Egypt"), t("Iran","ir","Iran"), t("Nouvelle-Zélande","nz","New Zealand")] },
+    { letter: "H", teams: [t("Espagne","es","Spain"), t("Cap-Vert","cv","Cape Verde"), t("Arabie saoudite","sa","Saudi Arabia"), t("Uruguay","uy","Uruguay")] },
+    { letter: "I", teams: [t("France","fr","France"), t("Sénégal","sn","Senegal"), t("Irak","iq","Iraq"), t("Norvège","no","Norway")] },
+    { letter: "J", teams: [t("Argentine","ar","Argentina"), t("Algérie","dz","Algeria"), t("Autriche","at","Austria"), t("Jordanie","jo","Jordan")] },
+    { letter: "K", teams: [t("Portugal","pt","Portugal"), t("RD Congo","cd","DR Congo"), t("Ouzbékistan","uz","Uzbekistan"), t("Colombie","co","Colombia")] },
+    { letter: "L", teams: [t("Angleterre","gb-eng","England"), t("Croatie","hr","Croatia"), t("Ghana","gh","Ghana"), t("Panama","pa","Panama")] },
   ];
 
   // Liste à plat des équipes (pour les pronos bonus : buteur…)
@@ -101,6 +101,30 @@
     sf: "finaliste",
     final: "vainqueur",
   };
+
+  // 20 candidats réalistes au titre de meilleur buteur (équipes qualifiées)
+  WC.TOP_SCORERS = [
+    "Kylian Mbappé (France)",
+    "Erling Haaland (Norvège)",
+    "Harry Kane (Angleterre)",
+    "Lionel Messi (Argentine)",
+    "Lautaro Martínez (Argentine)",
+    "Julián Álvarez (Argentine)",
+    "Vinícius Júnior (Brésil)",
+    "Rodrygo (Brésil)",
+    "Raphinha (Brésil)",
+    "Cristiano Ronaldo (Portugal)",
+    "Rafael Leão (Portugal)",
+    "Lamine Yamal (Espagne)",
+    "Álvaro Morata (Espagne)",
+    "Jude Bellingham (Angleterre)",
+    "Bukayo Saka (Angleterre)",
+    "Memphis Depay (Pays-Bas)",
+    "Cody Gakpo (Pays-Bas)",
+    "Romelu Lukaku (Belgique)",
+    "Mohamed Salah (Égypte)",
+    "Jamal Musiala (Allemagne)",
+  ];
 
   // Barème phase de groupes
   WC.POINTS = { exact: 5, diff: 3, outcome: 1 };

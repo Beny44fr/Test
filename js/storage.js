@@ -12,9 +12,11 @@
     predictions: {}, // { matchId: {h,a} }
     bonus: {}, // { topScorer }
     bracket: emptyBracket(), // tableau final pronostiqué
-    results: {}, // résultats réels saisis par l'organisateur
+    results: {}, // résultats réels (API ou saisie organisateur)
     bonusResults: {},
     bracketResults: emptyBracket(), // vrai tableau final
+    schedule: {}, // { matchId: {date, city} } surcharge depuis l'API
+    apiCfg: null, // configuration API de synchronisation des résultats
     league: [], // [{ name, predictions, bonus, bracket }]
   });
 

@@ -6,13 +6,24 @@ Outil de pronostics **premium et mobile-first** pour la Coupe du Monde 2026, pen
 
 ## ✨ Fonctionnalités
 
-- **Pronostics des 72 matchs de poule** (12 groupes A–L) avec saisie de score rapide (steppers tactiles).
-- **Questions bonus** : vainqueur, finaliste, meilleur buteur.
-- **Classement automatique** avec barème par match.
-- **Mode ligue** : chaque collègue partage ses pronos via un **lien** ou un **code**, l'organisateur les ajoute et saisit les résultats réels.
-- **UI/UX soignée** : thème sombre premium, icônes vectorielles, drapeaux, navigation par onglets, animations.
+- **Pronostics des 72 matchs de poule** (12 groupes A–L), **pré-remplis à 0-0** : on n'ajuste que ce qu'on veut.
+- **Écran de saisie triable** : **par groupe** ou **par date** (ordre chronologique).
+- **Tableau final automatique** : 16es → finale + **petite finale (3e place)**. Les 16es sont **alimentés automatiquement** par le classement déduit des pronos de groupes (1ers, 2es + 8 meilleurs 3es) ; il suffit de faire avancer les équipes.
+- **Synchronisation des résultats via API** (TheSportsDB par défaut) : scores, dates et villes mis à jour automatiquement, classement recalculé.
+- **Question bonus** : meilleur buteur (liste de 20 candidats + « Autre »).
+- **Classement automatique** détaillé (groupes · tableau · bonus).
+- **Mode ligue** : chaque collègue partage ses pronos via un **lien** ou un **code**.
+- **UI/UX soignée** : thème sombre premium, icônes vectorielles, drapeaux, navigation par onglets.
 - **PWA installable** + **mode hors-ligne** (service worker) quand l'app est hébergée.
-- **Sauvegarde locale** automatique (localStorage), aucune donnée envoyée sur un serveur.
+- **Sauvegarde locale** automatique (localStorage).
+
+## 🔌 Synchronisation API des résultats
+
+Onglet **Résultats → Synchroniser**. Par défaut : **TheSportsDB** (gratuit, compatible navigateur, clé `123`). Configurable dans **Réglages API** : fournisseur, clé, identifiant de compétition (`idLeague`), saison.
+
+- L'app associe les matchs par **nom d'équipe** (FR/EN + alias) et met à jour **scores, dates et villes**.
+- ⚠️ L'`idLeague` et la saison par défaut (Coupe du Monde / `2026`) doivent être **vérifiés/ajustés** via le bouton « Tester la connexion » selon la disponibilité des données chez le fournisseur.
+- En l'absence d'API, l'organisateur peut toujours saisir les résultats à la main (et les vainqueurs du tableau final).
 
 ## 🏆 Barème
 
@@ -52,10 +63,11 @@ manifest.webmanifest    # métadonnées PWA
 sw.js                   # service worker (offline)
 icon.svg                # icône de l'app
 css/styles.css          # design system
-js/data.js              # groupes, équipes, calendrier, barème
+js/data.js              # groupes, équipes, calendrier, barème, buteurs
 js/icons.js             # icônes SVG + drapeaux
-js/scoring.js           # calcul des points
+js/scoring.js           # points, classement de groupes, qualifiés
 js/storage.js           # localStorage + encodage des codes
+js/api.js               # synchronisation des résultats (TheSportsDB)
 js/app.js               # logique & rendu de l'interface
 ```
 

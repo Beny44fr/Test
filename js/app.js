@@ -6,8 +6,11 @@
   let state = WC.store.load();
   let view = "home";
   let filterGroup = "A";
+  let viewBy = "group"; // "group" | "date" : tri de l'écran de saisie
+  let filterDate = null; // date sélectionnée en mode "par date"
   let predictPhase = "groups"; // "groups" | "bracket"
   let koRound = "r32"; // tour affiché dans le tableau final
+  const scorerOther = {}; // mode "Autre" du buteur, par contexte (bonus/bonusResult)
   let resultsMode = false; // dans l'onglet Pronos : false = mes pronos, true = saisie résultats
 
   const app = document.getElementById("app");
@@ -18,6 +21,8 @@
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const fmtDate = (iso) =>
     new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
+  const fmtChip = (iso) =>
+    new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
   const toast = (msg) => {
     let t = document.getElementById("toast");
     if (!t) {
@@ -34,6 +39,31 @@
   const me = () => ({ name: state.me.name || "Moi", predictions: state.predictions, bonus: state.bonus, bracket: state.bracket });
   const allPlayers = () => [me(), ...state.league];
   const hasResults = () => WC.MATCHES.some((m) => WC.isFilled(state.results[m.id]));
+
+  // Date / ville effectives (surchargées par l'API si dispo)
+  const effDate = (m) => (state.schedule[m.id] && state.schedule[m.id].date) || m.date;
+  const effCity = (m) => state.schedule[m.id] && state.schedule[m.id].city;
+  const uniqueDates = () => [...new Set(WC.MATCHES.map(effDate))].sort();
+
+  // Pré-remplit tous les pronostics manquants à 0-0
+  function ensureDefaults() {
+    WC.MATCHES.forEach((m) => {
+      if (!WC.isFilled(state.predictions[m.id])) state.predictions[m.id] = { h: 0, a: 0 };
+    });
+  }
+
+  // Tableau final calculé automatiquement depuis les pronos de groupes
+  function computeR32(preds) {
+    const q = WC.qualifiers(preds);
+    const seedA = [...q.winners, ...q.thirds.slice(0, 4)]; // 16
+    const seedB = [...q.runners, ...q.thirds.slice(4, 8)]; // 16
+    const teams = [];
+    for (let i = 0; i < 16; i++) {
+      teams[i * 2] = seedA[i] ? seedA[i].name : "";
+      teams[i * 2 + 1] = seedB[i] ? seedB[i].name : "";
+    }
+    return teams;
+  }
 
   /* ---------------- Rendu principal ---------------- */
   function render() {
@@ -134,16 +164,41 @@
     if (predictPhase === "bracket") return head + bracketView(resultsMode);
 
     const store = resultsMode ? state.results : state.predictions;
-    const matches = WC.MATCHES.filter((m) => m.group === filterGroup);
-    const groupChips = WC.GROUPS.map(
-      (g) => `<button class="chip ${g.letter === filterGroup ? "active" : ""}" data-group="${g.letter}">${g.letter}</button>`
-    ).join("");
     const filled = WC.MATCHES.filter((m) => WC.isFilled(store[m.id])).length;
+
+    // Bascule de tri : par groupe / par date
+    const seg = `
+      <div class="seg">
+        <button class="seg-btn ${viewBy === "group" ? "active" : ""}" data-viewby="group">Par groupe</button>
+        <button class="seg-btn ${viewBy === "date" ? "active" : ""}" data-viewby="date">Par date</button>
+      </div>`;
+
+    let chips, matches;
+    if (viewBy === "date") {
+      const dates = uniqueDates();
+      if (!filterDate || !dates.includes(filterDate)) filterDate = dates[0];
+      chips = dates
+        .map(
+          (d) =>
+            `<button class="chip chip-wide ${d === filterDate ? "active" : ""}" data-date="${d}">${fmtChip(d)}</button>`
+        )
+        .join("");
+      matches = WC.MATCHES.filter((m) => effDate(m) === filterDate);
+    } else {
+      chips = WC.GROUPS.map(
+        (g) => `<button class="chip ${g.letter === filterGroup ? "active" : ""}" data-group="${g.letter}">${g.letter}</button>`
+      ).join("");
+      matches = WC.MATCHES.filter((m) => m.group === filterGroup).sort((a, b) =>
+        effDate(a) < effDate(b) ? -1 : effDate(a) > effDate(b) ? 1 : 0
+      );
+    }
 
     return `
       ${head}
+      ${resultsMode ? syncBar() : ""}
       <div class="phase-meta"><span class="pill">${filled}/${WC.MATCHES.length} matchs</span></div>
-      <div class="chips">${groupChips}</div>
+      ${seg}
+      <div class="chips">${chips}</div>
       <div class="match-list">
         ${matches.map((m) => matchCard(m, store)).join("")}
       </div>
@@ -156,10 +211,25 @@
     `;
   };
 
+  // Barre de synchronisation API (mode résultats) — détaillée dans api.js
+  function syncBar() {
+    const last = state.apiCfg && state.apiCfg.lastSync;
+    return `
+      <div class="syncbar">
+        <button class="btn btn-primary" data-act="apiSync">${WC.icon("download", 16)} Synchroniser les résultats</button>
+        <button class="link-btn" data-act="apiSettings">Réglages API</button>
+        ${last ? `<span class="sync-info">Dernière synchro : ${esc(last)}</span>` : `<span class="sync-info">Jamais synchronisé</span>`}
+      </div>`;
+  }
+
   /* ---------------- Tableau final (phases finales) ---------------- */
   function bracketView(isResults) {
     const B = isResults ? state.bracketResults : state.bracket;
     if (!B.win) Object.assign(B, WC.store.emptyBracket());
+    // Les 16es sont alimentés automatiquement par les pronos (ou résultats) de groupes
+    const r32teams = computeR32(isResults ? state.results : state.predictions);
+    B.teams = r32teams;
+    pruneBracket(B, r32teams);
     const round = WC.KO_ROUNDS.find((r) => r.key === koRound) || WC.KO_ROUNDS[0];
 
     const roundChips = WC.KO_ROUNDS.map(
@@ -168,7 +238,7 @@
 
     // Récupère les deux équipes d'un match du tour courant
     const teamsOf = (i) => {
-      if (round.key === "r32") return [B.teams[i * 2] || "", B.teams[i * 2 + 1] || ""];
+      if (round.key === "r32") return [r32teams[i * 2] || "", r32teams[i * 2 + 1] || ""];
       const pw = B.win[round.prev] || [];
       return [pw[i * 2] || "", pw[i * 2 + 1] || ""];
     };
@@ -197,15 +267,16 @@
       }
     }
 
-    const prefill = isResults
-      ? ""
-      : `<button class="btn btn-ghost full" data-act="prefillBracket">${WC.icon("ball", 16)} Pré-remplir les 16es depuis mes pronos de groupes</button>`;
+    const autoNote =
+      round.key === "r32"
+        ? `<p class="hint ko-auto">${WC.icon("ball", 14)} Les 16es sont alimentés automatiquement par ${isResults ? "les résultats" : "tes pronos"} de la phase de groupes (1ers, 2es + 8 meilleurs 3es). Fais ensuite avancer chaque équipe.</p>`
+        : "";
 
     return `
-      <p class="hint ko-hint">Choisis les 32 qualifiés en 16es, puis fais avancer ton tableau jusqu'au sacre. Barème : ${WC.KO_POINTS.r32} pts par qualifié en 8es, ${WC.KO_POINTS.r16} en quarts, ${WC.KO_POINTS.qf} en demies, ${WC.KO_POINTS.sf} par finaliste, ${WC.THIRD_POINTS} pts pour la 3e place, ${WC.KO_POINTS.final} pts pour le vainqueur.</p>
+      <p class="hint ko-hint">Barème : ${WC.KO_POINTS.r32} pts par qualifié en 8es, ${WC.KO_POINTS.r16} en quarts, ${WC.KO_POINTS.qf} en demies, ${WC.KO_POINTS.sf} par finaliste, ${WC.THIRD_POINTS} pts pour la 3e place, ${WC.KO_POINTS.final} pts pour le vainqueur.</p>
       ${banner}
       <div class="chips">${roundChips}</div>
-      ${round.key === "r32" ? prefill : ""}
+      ${autoNote}
       <div class="match-list">${cards}</div>
       ${
         isResults
@@ -217,35 +288,15 @@
 
   function koMatchCard(round, i, a, b, winner, isResults) {
     const ds = isResults ? "koResult" : "ko";
-    const isR32 = round.key === "r32";
-    const cell = (team, slot) => {
-      if (isR32) {
-        return `<select class="ko-select" data-act="koTeam" data-store="${ds}" data-slot="${i * 2 + slot}">
-            ${teamOptions(team)}
-          </select>`;
-      }
-      return `<span class="ko-team-label">${team ? flagName(team) : '<span class="muted">—</span>'}</span>`;
-    };
+    const cell = (team) => `<span class="ko-team-label">${team ? flagName(team) : '<span class="muted">— à venir —</span>'}</span>`;
     const advBtn = (team) =>
       `<button class="ko-adv ${winner && winner === team ? "win" : ""}" data-act="koWin" data-store="${ds}" data-round="${round.key}" data-idx="${i}" data-team="${esc(team)}" ${team ? "" : "disabled"} aria-label="faire avancer">${WC.icon("check", 14)}</button>`;
     return `
       <div class="ko-match ${winner ? "decided" : ""}">
         <span class="ko-num">M${i + 1}</span>
-        <div class="ko-side ${winner === a ? "is-win" : ""}">${cell(a, 0)}${advBtn(a)}</div>
-        <div class="ko-side ${winner === b ? "is-win" : ""}">${cell(b, 1)}${advBtn(b)}</div>
+        <div class="ko-side ${winner === a ? "is-win" : ""}">${cell(a)}${advBtn(a)}</div>
+        <div class="ko-side ${winner === b ? "is-win" : ""}">${cell(b)}${advBtn(b)}</div>
       </div>`;
-  }
-
-  function teamOptions(sel) {
-    return (
-      `<option value="">— équipe —</option>` +
-      WC.GROUPS.map(
-        (g) =>
-          `<optgroup label="Groupe ${g.letter}">` +
-          g.teams.map((t) => `<option value="${esc(t.name)}" ${sel === t.name ? "selected" : ""}>${esc(t.name)}</option>`).join("") +
-          `</optgroup>`
-      ).join("")
-    );
   }
 
   function flagName(name) {
@@ -266,9 +317,10 @@
         </div>`;
     };
     const done = WC.isFilled(v);
+    const city = effCity(m);
     return `
       <div class="match ${done ? "done" : ""}">
-        <div class="match-meta">J${m.matchday} · ${fmtDate(m.date)}</div>
+        <div class="match-meta">Groupe ${m.group} · J${m.matchday} · ${fmtDate(effDate(m))}${city ? ` · ${esc(city)}` : ""}</div>
         <div class="match-row">
           <div class="team team-h">${WC.flag(m.home.code)}<span class="tname">${esc(m.home.name)}</span></div>
           ${stepper("h")}
@@ -277,6 +329,20 @@
           <div class="team team-a"><span class="tname">${esc(m.away.name)}</span>${WC.flag(m.away.code)}</div>
         </div>
       </div>`;
+  }
+
+  function scorerField(val, ds) {
+    const inList = WC.TOP_SCORERS.includes(val);
+    const other = scorerOther[ds] || (!!val && !inList);
+    const opts =
+      `<option value="" ${!val && !other ? "selected" : ""}>— choisir —</option>` +
+      WC.TOP_SCORERS.map((p) => `<option value="${esc(p)}" ${inList && val === p ? "selected" : ""}>${esc(p)}</option>`).join("") +
+      `<option value="__other__" ${other ? "selected" : ""}>Autre…</option>`;
+    const sel = `<select class="input" data-scorer-select data-store="${ds}">${opts}</select>`;
+    const txt = other
+      ? `<input class="input scorer-other" data-scorer-text data-store="${ds}" maxlength="40" placeholder="Nom du buteur" value="${esc(val)}" />`
+      : "";
+    return sel + txt;
   }
 
   function bonusBlock(store, isResults) {
@@ -290,10 +356,10 @@
         <p class="hint">Points en fin de tournoi.</p>
         ${WC.BONUS.map((b) => {
           const val = (store || {})[b.id] || "";
-          const input =
-            b.type === "team"
-              ? `<select class="input" data-bonus="${b.id}" data-store="${ds}">${teamOpts(val)}</select>`
-              : `<input class="input" data-bonus="${b.id}" data-store="${ds}" maxlength="32" placeholder="Nom du joueur" value="${esc(val)}" />`;
+          let input;
+          if (b.id === "topScorer") input = scorerField(val, ds);
+          else if (b.type === "team") input = `<select class="input" data-bonus="${b.id}" data-store="${ds}">${teamOpts(val)}</select>`;
+          else input = `<input class="input" data-bonus="${b.id}" data-store="${ds}" maxlength="40" placeholder="Nom du joueur" value="${esc(val)}" />`;
           return `<div class="bonus-row"><label><span class="bonus-lab">${WC.icon(b.icon, 16)} ${b.label}</span> <span class="pts">+${b.points}</span></label>${input}</div>`;
         }).join("")}
       </section>`;
@@ -385,11 +451,14 @@
     } else {
       target[mid][side] = Math.max(0, Math.min(99, parseInt(val, 10) || 0));
     }
+    // Le tableau final dépend des scores de groupes : on le garde cohérent
+    const B = store === "result" ? state.bracketResults : state.bracket;
+    pruneBracket(B, computeR32(target));
     save();
   }
 
   document.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-view],[data-act],[data-group],[data-phase],[data-round-tab]");
+    const b = e.target.closest("[data-view],[data-act],[data-group],[data-date],[data-viewby],[data-phase],[data-round-tab]");
     if (!b) return;
 
     if (b.dataset.view) {
@@ -399,6 +468,14 @@
     }
     if (b.dataset.group) {
       filterGroup = b.dataset.group;
+      return render();
+    }
+    if (b.dataset.date) {
+      filterDate = b.dataset.date;
+      return render();
+    }
+    if (b.dataset.viewby) {
+      viewBy = b.dataset.viewby;
       return render();
     }
     if (b.dataset.phase) {
@@ -428,20 +505,24 @@
       const arr = (target.win[b.dataset.round] = target.win[b.dataset.round] || []);
       const idx = +b.dataset.idx;
       arr[idx] = arr[idx] === b.dataset.team ? "" : b.dataset.team; // re-tap = annuler
-      pruneBracket(target);
+      pruneBracket(target, computeR32(b.dataset.store === "koResult" ? state.results : state.predictions));
       save();
       return render();
     }
-    if (act === "prefillBracket") {
-      return prefillBracket();
+    if (act === "apiSync") {
+      return doApiSync();
+    }
+    if (act === "apiSettings") {
+      return openApiSettings();
     }
     if (act === "resetMine") {
-      if (confirm("Réinitialiser tous TES pronostics (groupes + tableau final) ? Le classement et les résultats ne sont pas touchés.")) {
+      if (confirm("Réinitialiser tous TES pronostics (tout repasse à 0-0, tableau final remis à zéro) ? Le classement et les résultats ne sont pas touchés.")) {
         state.predictions = {};
         state.bonus = {};
         state.bracket = WC.store.emptyBracket();
+        ensureDefaults();
         save();
-        toast("Pronostics réinitialisés");
+        toast("Pronostics réinitialisés (0-0)");
         render();
       }
       return;
@@ -493,39 +574,30 @@
       const target = el.dataset.store === "bonusResult" ? state.bonusResults : state.bonus;
       target[el.dataset.bonus] = el.value;
       save();
-    } else if (el.dataset.act === "koTeam") {
-      const target = el.dataset.store === "koResult" ? state.bracketResults : state.bracket;
-      target.teams[+el.dataset.slot] = el.value;
-      pruneBracket(target);
+    } else if (el.hasAttribute("data-scorer-text")) {
+      const target = el.dataset.store === "bonusResult" ? state.bonusResults : state.bonus;
+      target.topScorer = el.value;
       save();
-      render();
     }
   });
 
-  // Construit les 16es à partir des pronostics de la phase de groupes
-  function prefillBracket() {
-    const q = WC.qualifiers(state.predictions);
-    if (!q.winners.filter(Boolean).length) {
-      return toast("Remplis d'abord des pronos de groupes");
-    }
-    const already = (state.bracket.teams || []).filter(Boolean).length;
-    if (already && !confirm("Remplacer ton tableau actuel par les qualifiés issus de tes pronos de groupes ?")) return;
+  // Selects : certains navigateurs n'émettent que "change"
+  document.addEventListener("change", (e) => {
+    const el = e.target;
+    if (el.hasAttribute && el.hasAttribute("data-scorer-select")) handleScorerSelect(el);
+  });
 
-    // 16 affiches : 1ers + 4 meilleurs 3es face aux 2es + 4 autres 3es
-    const seedA = [...q.winners, ...q.thirds.slice(0, 4)]; // 16
-    const seedB = [...q.runners, ...q.thirds.slice(4, 8)]; // 16
-    const teams = [];
-    for (let i = 0; i < 16; i++) {
-      teams[i * 2] = seedA[i] ? seedA[i].name : "";
-      teams[i * 2 + 1] = seedB[i] ? seedB[i].name : "";
+  function handleScorerSelect(el) {
+    const ds = el.dataset.store;
+    const target = ds === "bonusResult" ? state.bonusResults : state.bonus;
+    if (el.value === "__other__") {
+      scorerOther[ds] = true;
+      target.topScorer = "";
+    } else {
+      scorerOther[ds] = false;
+      target.topScorer = el.value;
     }
-    state.bracket.teams = teams;
-    // On repart d'un tableau neuf côté vainqueurs
-    state.bracket.win = WC.store.emptyBracket().win;
-    pruneBracket(state.bracket);
     save();
-    koRound = "r32";
-    toast(q.complete ? "16es pré-remplis depuis tes pronos" : "Pré-rempli (pronos de groupes incomplets)");
     render();
   }
 
@@ -540,15 +612,17 @@
   }
 
   // Nettoie les vainqueurs devenus incohérents après un changement amont
-  function pruneBracket(B) {
+  function pruneBracket(B, teams) {
     if (!B.win) Object.assign(B, WC.store.emptyBracket());
+    const r32 = teams || B.teams || [];
+    B.teams = r32;
     WC.KO_ROUNDS.forEach((r) => {
       const w = (B.win[r.key] = B.win[r.key] || []);
       for (let i = 0; i < r.n; i++) {
         let a, b;
         if (r.key === "r32") {
-          a = B.teams[i * 2] || "";
-          b = B.teams[i * 2 + 1] || "";
+          a = r32[i * 2] || "";
+          b = r32[i * 2 + 1] || "";
         } else {
           const pw = B.win[r.prev] || [];
           a = pw[i * 2] || "";
@@ -672,9 +746,9 @@
           <li>Chacun remplit ses pronos et <b>partage son lien/code</b>.</li>
           <li>L'organisateur ajoute chaque code dans l'onglet <b>Ligue</b>.</li>
           <li>Au fil des matchs, l'organisateur saisit les <b>résultats</b>.</li>
-          <li>Le <b>classement</b> se met à jour automatiquement 🏆</li>
+          <li>Le <b>classement</b> se met à jour automatiquement.</li>
         </ol>
-        <p class="hint">Astuce : les dates des matchs sont indicatives et l'app fonctionne 100% hors-ligne.</p>
+        <p class="hint">Astuce : l'écran de saisie se trie par groupe ou par date. Les résultats peuvent être synchronisés via une API (onglet Résultats), et le tableau final s'alimente tout seul depuis la phase de groupes.</p>
       </div>`;
     m.addEventListener("click", (e) => {
       if (e.target === m || e.target.hasAttribute("data-close")) m.remove();
@@ -699,7 +773,78 @@
     }
   }
 
+  /* ---------------- Synchronisation API des résultats ---------------- */
+  async function doApiSync() {
+    const cfg = state.apiCfg || WC.api.defaults();
+    toast("Synchronisation…");
+    try {
+      const res = await WC.api.sync(cfg, state);
+      cfg.lastSync = new Date().toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      state.apiCfg = cfg;
+      // Recalcule le tableau réel à partir des résultats fraîchement importés
+      pruneBracket(state.bracketResults, computeR32(state.results));
+      save();
+      toast(`${res.updated} match(s) à jour · ${res.finished} terminé(s)`);
+      render();
+    } catch (e) {
+      console.warn(e);
+      alert("Échec de la synchronisation : " + (e && e.message ? e.message : e) + "\n\nVérifie les Réglages API (fournisseur, clé, identifiant de compétition, saison) et ta connexion.");
+    }
+  }
+
+  function openApiSettings() {
+    const cfg = Object.assign(WC.api.defaults(), state.apiCfg || {});
+    const m = document.createElement("div");
+    m.className = "modal";
+    m.innerHTML = `
+      <div class="modal-card">
+        <button class="modal-x" data-close aria-label="fermer">${WC.icon("x", 16)}</button>
+        <h2 class="card-head">${WC.icon("download", 20)} Réglages API (résultats)</h2>
+        <p class="hint">Synchronise automatiquement les scores réels depuis une API de football. Par défaut : TheSportsDB (gratuit, compatible navigateur).</p>
+        <label class="field-lab">Fournisseur</label>
+        <select class="input" data-cfg="provider">
+          <option value="thesportsdb" ${cfg.provider === "thesportsdb" ? "selected" : ""}>TheSportsDB (gratuit)</option>
+        </select>
+        <label class="field-lab">Clé API</label>
+        <input class="input" data-cfg="key" value="${esc(cfg.key)}" placeholder="123" />
+        <label class="field-lab">Identifiant de compétition (idLeague)</label>
+        <input class="input" data-cfg="league" value="${esc(cfg.league)}" />
+        <label class="field-lab">Saison</label>
+        <input class="input" data-cfg="season" value="${esc(cfg.season)}" />
+        <button class="btn btn-primary full" data-cfg-save>Enregistrer</button>
+        <button class="btn btn-ghost full" data-cfg-test>Tester la connexion</button>
+        <p class="hint">L'app associe les matchs par nom d'équipe et met aussi à jour dates et villes. Les scores des matchs terminés alimentent le classement.</p>
+      </div>`;
+    m.addEventListener("click", async (e) => {
+      if (e.target === m || e.target.hasAttribute("data-close")) return m.remove();
+      const read = () => {
+        m.querySelectorAll("[data-cfg]").forEach((el) => (cfg[el.dataset.cfg] = el.value.trim()));
+        return cfg;
+      };
+      if (e.target.hasAttribute("data-cfg-save")) {
+        state.apiCfg = read();
+        save();
+        toast("Réglages enregistrés");
+        m.remove();
+        render();
+      } else if (e.target.hasAttribute("data-cfg-test")) {
+        read();
+        e.target.textContent = "Test en cours…";
+        try {
+          const n = await WC.api.test(cfg);
+          alert(`Connexion OK : ${n} matchs trouvés pour la compétition/saison.`);
+        } catch (err) {
+          alert("Échec : " + (err && err.message ? err.message : err));
+        }
+        e.target.textContent = "Tester la connexion";
+      }
+    });
+    document.body.appendChild(m);
+  }
+
   /* ---------------- Démarrage ---------------- */
+  ensureDefaults();
+  save();
   checkUrlImport();
   render();
 })();
