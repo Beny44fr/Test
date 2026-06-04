@@ -12,7 +12,7 @@
     defaults() {
       // idLeague TheSportsDB pour la Coupe du Monde + saison.
       // Ajustable dans les Réglages API si nécessaire.
-      return { provider: "thesportsdb", key: "123", league: "4429", season: "2026", lastSync: null };
+      return { provider: "thesportsdb", key: "123", league: "4429", season: "2026", lastSync: null, auto: true, interval: 15 };
     },
 
     // Teste la connexion : renvoie le nombre de matchs trouvés

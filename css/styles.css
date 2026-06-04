@@ -82,6 +82,8 @@ body {
 }
 .input:focus { border-color: var(--primary); }
 select.input { appearance: none; }
+.check-row { display: flex; align-items: center; gap: 9px; font-size: 14px; color: var(--text); margin: 12px 0 2px; cursor: pointer; }
+.check-row input { width: 18px; height: 18px; accent-color: var(--primary); }
 
 /* ---------- Boutons ---------- */
 .btn {
