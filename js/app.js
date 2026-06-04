@@ -6,7 +6,7 @@
   let state = WC.store.load();
   let view = "home";
   let filterGroup = "A";
-  let viewBy = "group"; // "group" | "date" : tri de l'écran de saisie
+  let viewBy = "date"; // "group" | "date" : tri de l'écran de saisie (par date par défaut)
   let filterDate = null; // date sélectionnée en mode "par date"
   let predictPhase = "groups"; // "groups" | "bracket"
   let koRound = "r32"; // tour affiché dans le tableau final
@@ -45,6 +45,10 @@
   const effTime = (m) => (state.schedule[m.id] && state.schedule[m.id].time) || m.time || "";
   const effCity = (m) => state.schedule[m.id] && state.schedule[m.id].city;
   const uniqueDates = () => [...new Set(WC.MATCHES.map(effDate))].sort();
+  const todayStr = () => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+  };
 
   // Instant de coup d'envoi d'un match (timestamp API prioritaire, sinon date+heure locale)
   function matchStart(m) {
@@ -73,6 +77,9 @@
     app.innerHTML = views[view] ? views[view]() : views.home();
     renderNav();
     window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
+    // Centre la puce active (utile en mode "par date" sur la date à venir)
+    const active = app.querySelector(".chips .chip.active");
+    if (active && active.scrollIntoView) active.scrollIntoView({ inline: "center", block: "nearest" });
   }
 
   function renderNav() {
@@ -179,11 +186,15 @@
     let chips, matches;
     if (viewBy === "date") {
       const dates = uniqueDates();
-      if (!filterDate || !dates.includes(filterDate)) filterDate = dates[0];
+      const today = todayStr();
+      // Par défaut : première date à venir (>= aujourd'hui), sinon la dernière
+      if (!filterDate || !dates.includes(filterDate)) {
+        filterDate = dates.find((d) => d >= today) || dates[dates.length - 1];
+      }
       chips = dates
         .map(
           (d) =>
-            `<button class="chip chip-wide ${d === filterDate ? "active" : ""}" data-date="${d}">${fmtChip(d)}</button>`
+            `<button class="chip chip-wide ${d === filterDate ? "active" : ""} ${d < today ? "past" : ""}" data-date="${d}">${fmtChip(d)}</button>`
         )
         .join("");
       matches = WC.MATCHES.filter((m) => effDate(m) === filterDate);
@@ -395,10 +406,11 @@
     const done = WC.isFilled(v);
     const city = effCity(m);
     const time = effTime(m);
+    const past = matchStarted(m);
     const meta = `Groupe ${m.group} · J${m.matchday} · ${fmtDate(effDate(m))}${time ? ` · ${time}` : ""}${city ? ` · ${esc(city)}` : ""}`;
     return `
       <div class="match ${done ? "done" : ""} ${locked ? "locked" : ""}" data-id="${m.id}">
-        <div class="match-meta">${meta}${locked ? ` <span class="lock-tag">${WC.icon("lock", 12)} commencé</span>` : ""}</div>
+        <div class="match-meta ${past ? "meta-past" : ""}">${meta}${locked ? ` <span class="lock-tag">${WC.icon("lock", 12)} commencé</span>` : ""}</div>
         ${teamRow(m.home, "h")}
         ${teamRow(m.away, "a")}
       </div>`;
