@@ -45,13 +45,6 @@
   const effCity = (m) => state.schedule[m.id] && state.schedule[m.id].city;
   const uniqueDates = () => [...new Set(WC.MATCHES.map(effDate))].sort();
 
-  // Pré-remplit tous les pronostics manquants à 0-0
-  function ensureDefaults() {
-    WC.MATCHES.forEach((m) => {
-      if (!WC.isFilled(state.predictions[m.id])) state.predictions[m.id] = { h: 0, a: 0 };
-    });
-  }
-
   // Tableau final calculé automatiquement depuis les pronos de groupes
   function computeR32(preds) {
     const q = WC.qualifiers(preds);
@@ -76,9 +69,10 @@
     const items = [
       ["home", "home", "Accueil"],
       ["predict", "ball", "Pronos"],
-      ["ranking", "trophy", "Classement"],
+      ["scorer", "boot", "Buteur"],
+      ["ranking", "trophy", "Classt"],
       ["league", "users", "Ligue"],
-      ["results", "target", "Résultats"],
+      ["results", "target", "Résult"],
     ];
     document.getElementById("nav").innerHTML = items
       .map(
@@ -97,11 +91,6 @@
     const days = Math.max(0, Math.ceil((KICKOFF - new Date()) / 86400000));
     const filled = WC.MATCHES.filter((m) => WC.isFilled(state.predictions[m.id])).length;
     const pct = Math.round((filled / WC.MATCHES.length) * 100);
-    const koFilled = (state.bracket.win.final || []).filter(Boolean).length
-      ? "Champion désigné"
-      : (state.bracket.teams || []).filter(Boolean).length
-      ? "En cours"
-      : "À remplir";
     const name = state.me.name || "";
     return `
       <header class="hero">
@@ -130,7 +119,10 @@
         </div>
         <div class="progress"><div class="progress-bar" style="width:${pct}%"></div></div>
         <button class="btn btn-primary full" data-act="goGroups">${filled ? "Continuer mes pronos" : "Commencer mes pronos"} ${WC.icon("arrowRight", 18)}</button>
-        <button class="btn btn-ghost full" data-act="goBracket">${WC.icon("trophy", 16)} Tableau final — ${koFilled}</button>
+        <div class="btn-group">
+          <button class="btn btn-ghost" data-act="goBracket">${WC.icon("trophy", 16)} Tableau final</button>
+          <button class="btn btn-ghost" data-view="scorer">${WC.icon("boot", 16)} Buteur</button>
+        </div>
       </section>
 
       <section class="grid2">
@@ -205,9 +197,48 @@
       ${
         resultsMode
           ? bonusBlock(state.bonusResults, true)
-          : `${bonusBlock(state.bonus, false)}
-             <button class="btn btn-primary full" data-act="share">${WC.icon("share", 18)} Partager mes pronos</button>`
+          : `<button class="btn btn-primary full" data-act="share">${WC.icon("share", 18)} Partager mes pronos</button>`
       }
+    `;
+  };
+
+  /* ---------------- Onglet Meilleur buteur ---------------- */
+  views.scorer = function () {
+    const val = state.bonus.topScorer || "";
+    const labels = WC.TOP_SCORER_LABELS;
+    const inList = labels.includes(val);
+    const other = scorerOther.bonus || (!!val && !inList);
+    const bonusPts = (WC.BONUS.find((b) => b.id === "topScorer") || {}).points || 10;
+
+    const cards = WC.TOP_SCORERS.map((p) => {
+      const label = WC.scorerLabel(p);
+      const t = WC.TEAM_BY_NAME[p.team];
+      const sel = !other && val === label;
+      return `
+        <button class="scorer-card ${sel ? "sel" : ""}" data-act="pickScorer" data-label="${esc(label)}">
+          <span class="sc-flag">${t ? WC.flag(t.code) : ""}</span>
+          <span class="sc-txt"><span class="sc-name">${esc(p.name)}</span><span class="sc-team">${esc(p.team)}</span></span>
+          <span class="sc-check">${sel ? WC.icon("check", 16) : ""}</span>
+        </button>`;
+    }).join("");
+
+    const otherCard = `
+      <button class="scorer-card ${other ? "sel" : ""}" data-act="pickScorerOther">
+        <span class="sc-flag">${WC.icon("user", 18)}</span>
+        <span class="sc-txt"><span class="sc-name">Autre joueur</span><span class="sc-team">Saisie libre</span></span>
+        <span class="sc-check">${other ? WC.icon("check", 16) : ""}</span>
+      </button>`;
+
+    const otherInput = other
+      ? `<input class="input scorer-other" data-scorer-text data-store="bonus" maxlength="40" placeholder="Nom du buteur…" value="${esc(val)}" />`
+      : "";
+
+    return `
+      <header class="topbar"><h2>Meilleur buteur</h2><span class="pill">+${bonusPts} pts</span></header>
+      <p class="hint sc-hint">Qui finira meilleur buteur de la Coupe du Monde ? Choisis un favori (ou saisis un autre joueur).</p>
+      <div class="scorer-grid">${cards}${otherCard}</div>
+      ${otherInput}
+      <button class="btn btn-primary full" data-act="share">${WC.icon("share", 18)} Partager mes pronos</button>
     `;
   };
 
@@ -317,36 +348,42 @@
   function matchCard(m, store) {
     const v = store[m.id] || {};
     const ds = resultsMode ? "result" : "pred";
-    const stepper = (side) => {
-      const val = Number.isInteger(v[side]) ? v[side] : "";
+    const teamRow = (team, side) => {
+      const filled = Number.isInteger(v[side]);
+      const val = filled ? v[side] : "";
+      // Quand le score est vide, le bouton "−" est remplacé par un "0"
+      const left =
+        filled && v[side] >= 1
+          ? `<button class="step" data-act="dec" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="moins">${WC.icon("minus", 16)}</button>`
+          : `<button class="step step-zero" data-act="setzero" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="zéro">0</button>`;
       return `
-        <div class="stepper">
-          <button class="step" data-act="dec" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="moins">${WC.icon("minus", 16)}</button>
-          <input class="score" inputmode="numeric" maxlength="2" data-mid="${m.id}" data-side="${side}" data-store="${ds}" value="${val}" placeholder="·" />
-          <button class="step" data-act="inc" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="plus">${WC.icon("plus", 16)}</button>
+        <div class="m-team">
+          ${WC.flag(team.code)}
+          <span class="tname">${esc(team.name)}</span>
+          <div class="stepper">
+            ${left}
+            <input class="score" inputmode="numeric" maxlength="2" data-mid="${m.id}" data-side="${side}" data-store="${ds}" value="${val}" />
+            <button class="step" data-act="inc" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="plus">${WC.icon("plus", 16)}</button>
+          </div>
         </div>`;
     };
     const done = WC.isFilled(v);
     const city = effCity(m);
     return `
-      <div class="match ${done ? "done" : ""}">
+      <div class="match ${done ? "done" : ""}" data-id="${m.id}">
         <div class="match-meta">Groupe ${m.group} · J${m.matchday} · ${fmtDate(effDate(m))}${city ? ` · ${esc(city)}` : ""}</div>
-        <div class="match-row">
-          <div class="team team-h">${WC.flag(m.home.code)}<span class="tname">${esc(m.home.name)}</span></div>
-          ${stepper("h")}
-          <span class="vs">:</span>
-          ${stepper("a")}
-          <div class="team team-a"><span class="tname">${esc(m.away.name)}</span>${WC.flag(m.away.code)}</div>
-        </div>
+        ${teamRow(m.home, "h")}
+        ${teamRow(m.away, "a")}
       </div>`;
   }
 
   function scorerField(val, ds) {
-    const inList = WC.TOP_SCORERS.includes(val);
+    const labels = WC.TOP_SCORER_LABELS;
+    const inList = labels.includes(val);
     const other = scorerOther[ds] || (!!val && !inList);
     const opts =
       `<option value="" ${!val && !other ? "selected" : ""}>— choisir —</option>` +
-      WC.TOP_SCORERS.map((p) => `<option value="${esc(p)}" ${inList && val === p ? "selected" : ""}>${esc(p)}</option>`).join("") +
+      labels.map((l) => `<option value="${esc(l)}" ${inList && val === l ? "selected" : ""}>${esc(l)}</option>`).join("") +
       `<option value="__other__" ${other ? "selected" : ""}>Autre…</option>`;
     const sel = `<select class="input" data-scorer-select data-store="${ds}">${opts}</select>`;
     const txt = other
@@ -528,26 +565,34 @@
       return openApiSettings();
     }
     if (act === "resetMine") {
-      if (confirm("Réinitialiser tous TES pronostics (tout repasse à 0-0, tableau final remis à zéro) ? Le classement et les résultats ne sont pas touchés.")) {
+      if (confirm("Réinitialiser tous TES pronostics (scores vidés, buteur et tableau final remis à zéro) ? Le classement et les résultats ne sont pas touchés.")) {
         state.predictions = {};
         state.bonus = {};
         state.bracket = WC.store.emptyBracket();
-        ensureDefaults();
         save();
-        toast("Pronostics réinitialisés (0-0)");
+        toast("Pronostics réinitialisés");
         render();
       }
       return;
     }
-    if (act === "inc" || act === "dec") {
-      const inp = document.querySelector(`.score[data-mid="${b.dataset.mid}"][data-side="${b.dataset.side}"][data-store="${b.dataset.store}"]`);
-      let n = parseInt(inp.value, 10);
-      n = isNaN(n) ? 0 : n;
-      n = act === "inc" ? Math.min(99, n + 1) : Math.max(0, n - 1);
-      inp.value = n;
-      setScore(b.dataset.store, b.dataset.mid, b.dataset.side, n);
-      inp.closest(".match").classList.toggle("done", WC.isFilled((b.dataset.store === "result" ? state.results : state.predictions)[b.dataset.mid]));
+    if (act === "inc" || act === "dec" || act === "setzero") {
+      const { mid, side, store } = b.dataset;
+      const cur = (store === "result" ? state.results : state.predictions)[mid] || {};
+      const base = Number.isInteger(cur[side]) ? cur[side] : 0;
+      let n = act === "inc" ? Math.min(99, base + 1) : act === "dec" ? Math.max(0, base - 1) : 0;
+      setScore(store, mid, side, n);
+      refreshMatch(mid);
       updateProgress();
+    } else if (act === "pickScorer") {
+      scorerOther.bonus = false;
+      state.bonus.topScorer = b.dataset.label;
+      save();
+      render();
+    } else if (act === "pickScorerOther") {
+      scorerOther.bonus = true;
+      if (WC.TOP_SCORER_LABELS.includes(state.bonus.topScorer)) state.bonus.topScorer = "";
+      save();
+      render();
     } else if (act === "rules") {
       openRules();
     } else if (act === "share") {
@@ -648,12 +693,21 @@
     if (tw && tw !== sfLoserOf(B, 0) && tw !== sfLoserOf(B, 1)) B.win.third = [];
   }
 
+  // Remplace une seule carte de match (met à jour le stepper sans recharger la page)
+  function refreshMatch(mid) {
+    const el = document.querySelector(`.match[data-id="${mid}"]`);
+    if (!el) return;
+    const m = WC.MATCHES.find((x) => x.id === mid);
+    const store = resultsMode ? state.results : state.predictions;
+    el.outerHTML = matchCard(m, store);
+  }
+
   function updateProgress() {
-    const pill = document.querySelector(".topbar .pill");
+    const pill = document.querySelector(".phase-meta .pill");
     if (!pill) return;
     const store = resultsMode ? state.results : state.predictions;
     const filled = WC.MATCHES.filter((m) => WC.isFilled(store[m.id])).length;
-    pill.textContent = `${filled}/${WC.MATCHES.length}`;
+    pill.textContent = `${filled}/${WC.MATCHES.length} matchs`;
   }
 
   /* ---------------- Partage / import ---------------- */
@@ -748,7 +802,7 @@
           <li><b>+${WC.THIRD_POINTS}</b> — bonne 3e place (petite finale)</li>
           <li><b>+${WC.KO_POINTS.final}</b> — pour le champion du monde</li>
         </ul>
-        <p class="hint">Le tableau est noté par équipe : peu importe la position exacte, tu marques dès qu'une équipe que tu as fait avancer atteint réellement le tour. Astuce : le bouton « Pré-remplir les 16es » place automatiquement les qualifiés calculés depuis tes pronos de groupes — tu peux ensuite tout ajuster.</p>
+        <p class="hint">Le tableau est noté par équipe : peu importe la position exacte, tu marques dès qu'une équipe que tu as fait avancer atteint réellement le tour. Les 16es se remplissent automatiquement depuis tes pronos de groupes — tu n'as plus qu'à faire avancer les équipes.</p>
         <h3>Bonus (fin de tournoi)</h3>
         <ul class="rules">
           ${WC.BONUS.map((b) => `<li><b>+${b.points}</b> — ${b.label}</li>`).join("")}
@@ -853,8 +907,6 @@
   }
 
   /* ---------------- Démarrage ---------------- */
-  ensureDefaults();
-  save();
   checkUrlImport();
   render();
 })();

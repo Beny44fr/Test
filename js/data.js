@@ -104,27 +104,29 @@
 
   // 20 candidats réalistes au titre de meilleur buteur (équipes qualifiées)
   WC.TOP_SCORERS = [
-    "Kylian Mbappé (France)",
-    "Erling Haaland (Norvège)",
-    "Harry Kane (Angleterre)",
-    "Lionel Messi (Argentine)",
-    "Lautaro Martínez (Argentine)",
-    "Julián Álvarez (Argentine)",
-    "Vinícius Júnior (Brésil)",
-    "Rodrygo (Brésil)",
-    "Raphinha (Brésil)",
-    "Cristiano Ronaldo (Portugal)",
-    "Rafael Leão (Portugal)",
-    "Lamine Yamal (Espagne)",
-    "Álvaro Morata (Espagne)",
-    "Jude Bellingham (Angleterre)",
-    "Bukayo Saka (Angleterre)",
-    "Memphis Depay (Pays-Bas)",
-    "Cody Gakpo (Pays-Bas)",
-    "Romelu Lukaku (Belgique)",
-    "Mohamed Salah (Égypte)",
-    "Jamal Musiala (Allemagne)",
+    { name: "Kylian Mbappé", team: "France" },
+    { name: "Erling Haaland", team: "Norvège" },
+    { name: "Harry Kane", team: "Angleterre" },
+    { name: "Lionel Messi", team: "Argentine" },
+    { name: "Lautaro Martínez", team: "Argentine" },
+    { name: "Julián Álvarez", team: "Argentine" },
+    { name: "Vinícius Júnior", team: "Brésil" },
+    { name: "Rodrygo", team: "Brésil" },
+    { name: "Raphinha", team: "Brésil" },
+    { name: "Cristiano Ronaldo", team: "Portugal" },
+    { name: "Rafael Leão", team: "Portugal" },
+    { name: "Lamine Yamal", team: "Espagne" },
+    { name: "Álvaro Morata", team: "Espagne" },
+    { name: "Jude Bellingham", team: "Angleterre" },
+    { name: "Bukayo Saka", team: "Angleterre" },
+    { name: "Memphis Depay", team: "Pays-Bas" },
+    { name: "Cody Gakpo", team: "Pays-Bas" },
+    { name: "Romelu Lukaku", team: "Belgique" },
+    { name: "Mohamed Salah", team: "Égypte" },
+    { name: "Jamal Musiala", team: "Allemagne" },
   ];
+  WC.scorerLabel = (p) => `${p.name} (${p.team})`;
+  WC.TOP_SCORER_LABELS = WC.TOP_SCORERS.map(WC.scorerLabel);
 
   // Barème phase de groupes
   WC.POINTS = { exact: 5, diff: 3, outcome: 1 };

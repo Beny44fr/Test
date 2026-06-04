@@ -135,7 +135,10 @@ select.input { appearance: none; }
   flex: 0 0 auto; width: 42px; height: 42px; border-radius: 12px; border: 1px solid var(--line);
   background: var(--surface); color: var(--muted); font-weight: 800; font-size: 16px; cursor: pointer;
 }
+.chip { transition: transform .08s, background .15s, color .15s; }
+.chip:active { transform: scale(.92); }
 .chip.active { background: var(--grad); color: #04211a; border-color: transparent; }
+.seg-btn:active, .subtab:active { transform: scale(.97); }
 
 /* ---------- Sous-onglets (Groupes / Tableau final) ---------- */
 .subtabs {
@@ -206,38 +209,57 @@ select.input { appearance: none; }
 .champ-third .flag { width: 22px; height: 16px; }
 .reset-row { text-align: center; margin-top: 20px; }
 
-/* ---------- Match cards ---------- */
+/* ---------- Match cards (disposition verticale) ---------- */
 .match-list { display: flex; flex-direction: column; gap: 10px; }
 .match {
-  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 10px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 4px 14px 8px;
   transition: border .2s, background .2s;
 }
-.match.done { border-color: rgba(0, 224, 164, 0.45); background: linear-gradient(var(--surface), var(--surface)); }
-.match-meta { font-size: 11px; color: var(--muted); text-align: center; margin-bottom: 8px; text-transform: capitalize; }
-.match-row { display: grid; grid-template-columns: 1fr auto auto auto 1fr; align-items: center; gap: 4px; }
-.team { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.team-h { justify-content: flex-end; text-align: right; }
-.team-a { justify-content: flex-start; text-align: left; }
+.match.done { border-color: rgba(0, 224, 164, 0.4); background: linear-gradient(135deg, rgba(0, 224, 164, .06), var(--surface)); }
+.match-meta { font-size: 11px; color: var(--muted); margin: 9px 2px 4px; letter-spacing: .2px; }
 .flag {
-  width: 28px; height: 21px; object-fit: cover; border-radius: 3px; flex: 0 0 auto;
+  width: 30px; height: 22px; object-fit: cover; border-radius: 4px; flex: 0 0 auto;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 2px 4px rgba(0, 0, 0, 0.35);
   background: var(--surface2);
 }
-.tname { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vs { color: var(--muted); font-weight: 800; padding: 0 2px; }
+.m-team { display: flex; align-items: center; gap: 11px; padding: 9px 0; }
+.m-team + .m-team { border-top: 1px solid var(--line); }
+.tname { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; line-height: 1.25; }
+.m-team .stepper { margin-left: auto; }
 
 /* Stepper de score */
-.stepper { display: flex; align-items: center; gap: 4px; }
+.stepper { display: flex; align-items: center; gap: 6px; }
 .step {
-  width: 26px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface2);
+  width: 34px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface2);
   color: var(--text); font-size: 18px; font-weight: 700; cursor: pointer; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
 }
-.step:active { background: var(--primary); color: #04211a; }
+.step:active { background: var(--primary); color: #04211a; border-color: transparent; }
+.step-zero { color: var(--muted); font-weight: 800; background: var(--bg2); }
+.step-zero:active { background: var(--surface2); color: var(--muted); }
 .score {
-  width: 34px; height: 38px; text-align: center; font-size: 18px; font-weight: 800;
-  background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; color: var(--text); outline: none;
+  width: 42px; height: 40px; text-align: center; font-size: 19px; font-weight: 800;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; color: var(--text); outline: none;
+  transition: border .15s;
 }
 .score:focus { border-color: var(--primary); }
+
+/* ---------- Onglet Meilleur buteur ---------- */
+.sc-hint { margin: 0 2px 14px; line-height: 1.5; }
+.scorer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.scorer-card {
+  display: flex; align-items: center; gap: 10px; text-align: left; position: relative;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px;
+  color: var(--text); cursor: pointer; transition: border .15s, transform .08s, background .15s;
+}
+.scorer-card:active { transform: scale(.98); }
+.scorer-card.sel { border-color: var(--primary); background: linear-gradient(135deg, rgba(0, 224, 164, .1), var(--surface)); }
+.sc-flag { flex: 0 0 auto; display: inline-flex; color: var(--muted); }
+.sc-flag .flag { width: 26px; height: 19px; }
+.sc-txt { display: flex; flex-direction: column; min-width: 0; }
+.sc-name { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc-team { font-size: 11px; color: var(--muted); }
+.sc-check { margin-left: auto; color: var(--primary); display: inline-flex; }
 
 /* ---------- Bonus ---------- */
 .bonus-row { margin-top: 12px; }
@@ -274,18 +296,19 @@ select.input { appearance: none; }
 /* ---------- Nav bas ---------- */
 #nav {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
-  display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px;
-  background: rgba(10, 14, 26, 0.85); backdrop-filter: blur(14px);
-  border-top: 1px solid var(--line); padding: 8px 6px calc(8px + var(--safe));
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px;
+  background: rgba(10, 14, 26, 0.9); backdrop-filter: blur(14px);
+  border-top: 1px solid var(--line); padding: 7px 4px calc(7px + var(--safe));
 }
 .nav-btn {
-  background: none; border: none; color: var(--muted); cursor: pointer; padding: 6px 2px;
+  background: none; border: none; color: var(--muted); cursor: pointer; padding: 5px 1px;
   display: flex; flex-direction: column; align-items: center; gap: 3px; border-radius: 10px;
+  transition: color .15s;
 }
-.nav-ic { font-size: 20px; line-height: 1; }
-.nav-lab { font-size: 10px; font-weight: 700; }
+.nav-ic { line-height: 1; opacity: .9; }
+.nav-lab { font-size: 9.5px; font-weight: 700; letter-spacing: -0.2px; }
 .nav-btn.active { color: var(--primary); }
-.nav-btn.active .nav-ic { transform: translateY(-1px); }
+.nav-btn.active .nav-ic { transform: translateY(-1px); opacity: 1; }
 
 /* ---------- Modale ---------- */
 .modal {
@@ -319,4 +342,11 @@ select.input { appearance: none; }
   .nav-lab { font-size: 11px; }
   .modal { align-items: center; }
   .modal-card { border-radius: 22px; }
+}
+
+/* Petits écrans : steppers compacts pour éviter le débordement */
+@media (max-width: 360px) {
+  .step { width: 30px; height: 34px; }
+  .score { width: 36px; height: 36px; font-size: 17px; }
+  .tname { font-size: 14px; }
 }
