@@ -302,6 +302,34 @@ select.input { appearance: none; }
 .rank-pts { font-size: 22px; font-weight: 900; text-align: right; }
 .rank-pts span { font-size: 11px; color: var(--muted); display: block; font-weight: 600; }
 
+.rank-row { width: 100%; text-align: left; cursor: pointer; font-family: inherit; transition: transform .08s, border-color .15s; }
+.rank-row:active { transform: scale(.99); }
+.rank-pts { display: flex; align-items: baseline; gap: 4px; }
+.rank-pts .ic { color: var(--muted); align-self: center; }
+
+/* ---------- Détail joueur / match ---------- */
+.detail-totals { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+.detail-chip { background: var(--surface2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-size: 12px; font-weight: 700; }
+.detail-chip b { color: var(--primary); }
+.detail-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.detail-row {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 13px;
+}
+.detail-row .dr-teams { display: flex; align-items: center; gap: 6px; }
+.detail-row .flag { width: 20px; height: 15px; }
+.dr-sc { font-weight: 800; }
+.dr-lbl { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-pts { font-weight: 800; text-align: right; min-width: 28px; }
+.pts-5 { color: #ffd24a; }
+.pts-3 { color: var(--primary); }
+.pts-1 { color: #9fb0d0; }
+.pts-0 { color: var(--muted); }
+.match-detail {
+  background: none; border: none; color: var(--primary); font-weight: 700; font-size: 12px; cursor: pointer;
+  padding: 8px 0 2px; display: inline-flex; align-items: center; gap: 5px; font-family: inherit;
+}
+
 /* ---------- Empty / textarea ---------- */
 .empty { text-align: center; padding: 40px 20px; color: var(--muted); }
 .empty-ic { font-size: 48px; margin-bottom: 10px; }

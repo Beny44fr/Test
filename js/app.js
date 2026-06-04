@@ -413,6 +413,7 @@
         <div class="match-meta ${past ? "meta-past" : ""}">${meta}${locked ? ` <span class="lock-tag">${WC.icon("lock", 12)} commencé</span>` : ""}</div>
         ${teamRow(m.home, "h")}
         ${teamRow(m.away, "a")}
+        ${past ? `<button class="match-detail" data-act="matchDetail" data-mid="${m.id}">${WC.icon("users", 13)} Voir les pronos de la ligue ${WC.icon("arrowRight", 12)}</button>` : ""}
       </div>`;
   }
 
@@ -470,11 +471,11 @@
         ${rows
           .map(
             (r, i) => `
-          <div class="rank-row ${r.name === (state.me.name || "Moi") ? "is-me" : ""}">
+          <button class="rank-row ${r.name === (state.me.name || "Moi") ? "is-me" : ""}" data-act="playerDetail" data-name="${esc(r.name)}">
             <div class="rank-pos rank-${i + 1 <= 3 ? i + 1 : "n"}">${i + 1 <= 3 ? WC.icon("trophy", 18) : i + 1}</div>
             <div class="rank-name">${esc(r.name)}<span class="rank-sub">${r.matchPts} groupes · ${r.koPts} tableau${r.bonusPts ? ` · ${r.bonusPts} bonus` : ""} · ${r.exact} exact${r.exact > 1 ? "s" : ""}</span></div>
-            <div class="rank-pts">${r.total}<span>pts</span></div>
-          </div>`
+            <div class="rank-pts">${r.total}<span>pts</span> ${WC.icon("arrowRight", 14)}</div>
+          </button>`
           )
           .join("")}
       </div>
@@ -649,6 +650,10 @@
       render();
     } else if (act === "rules") {
       openRules();
+    } else if (act === "playerDetail") {
+      openPlayerDetail(b.dataset.name);
+    } else if (act === "matchDetail") {
+      openMatchDetail(b.dataset.mid);
     } else if (act === "share") {
       shareMe();
     } else if (act === "copyLink") {
@@ -830,6 +835,83 @@
     a.download = "ligue-cm2026.json";
     a.click();
     URL.revokeObjectURL(a.href);
+  }
+
+  /* ---------------- Modale générique ---------------- */
+  function openModal(inner) {
+    const m = document.createElement("div");
+    m.className = "modal";
+    m.innerHTML = `<div class="modal-card">
+        <button class="modal-x" data-close aria-label="fermer">${WC.icon("x", 16)}</button>
+        ${inner}
+      </div>`;
+    m.addEventListener("click", (e) => {
+      if (e.target === m || e.target.closest("[data-close]")) m.remove();
+    });
+    document.body.appendChild(m);
+    return m;
+  }
+
+  const scoreStr = (s) => (WC.isFilled(s) ? `${s.h}-${s.a}` : "—");
+  const ptsClass = (p) => `pts-${p >= 5 ? 5 : p >= 3 ? 3 : p >= 1 ? 1 : 0}`;
+
+  /* ---------------- Détail d'un joueur (points par match) ---------------- */
+  function openPlayerDetail(name) {
+    const player = allPlayers().find((p) => (p.name || "Moi") === name) || me();
+    const t = WC.totalPoints(player, state.results, state.bonusResults, state.bracketResults);
+    const rows = [];
+    WC.MATCHES.forEach((mm) => {
+      const r = state.results[mm.id];
+      if (!WC.isFilled(r)) return;
+      const pred = (player.predictions || {})[mm.id];
+      const res = WC.scoreMatch(pred, r);
+      rows.push(`
+        <div class="detail-row">
+          <span class="dr-teams">${WC.flag(mm.home.code)}<span class="dr-sc">${scoreStr(pred)}</span><span class="muted">vs</span><span class="dr-sc">${scoreStr(r)}</span>${WC.flag(mm.away.code)}</span>
+          <span class="dr-lbl">${esc(mm.home.name)} – ${esc(mm.away.name)}</span>
+          <span class="dr-pts ${ptsClass(res.points)}">${res.points > 0 ? "+" + res.points : "0"}</span>
+        </div>`);
+    });
+    const inner = `
+      <h2 class="card-head">${WC.icon("user", 20)} ${esc(player.name || "Moi")}</h2>
+      <div class="detail-totals">
+        <span class="detail-chip">Total <b>${t.total}</b></span>
+        <span class="detail-chip">Groupes ${t.matchPts}</span>
+        <span class="detail-chip">Tableau ${t.koPts}</span>
+        <span class="detail-chip">Bonus ${t.bonusPts}</span>
+        <span class="detail-chip">${t.exact} exact${t.exact > 1 ? "s" : ""}</span>
+      </div>
+      ${rows.length ? `<div class="detail-list">${rows.join("")}</div>` : `<p class="hint">Aucun match terminé pour l'instant.</p>`}`;
+    openModal(inner);
+  }
+
+  /* ---------------- Détail d'un match (pronos de la ligue) ---------------- */
+  function openMatchDetail(mid) {
+    const mm = WC.MATCHES.find((x) => x.id === mid);
+    if (!mm || !matchStarted(mm)) return; // fair-play : visible une fois commencé
+    const r = state.results[mid];
+    const rows = allPlayers()
+      .map((p) => {
+        const pred = (p.predictions || {})[mid];
+        const res = WC.isFilled(r) ? WC.scoreMatch(pred, r) : null;
+        return { name: p.name || "Moi", pred, pts: res ? res.points : null };
+      })
+      .sort((a, b) => (b.pts || 0) - (a.pts || 0));
+    const list = rows
+      .map(
+        (x) => `
+        <div class="detail-row">
+          <span class="dr-lbl">${esc(x.name)}</span>
+          <span class="dr-sc">${scoreStr(x.pred)}</span>
+          <span class="dr-pts ${x.pts == null ? "" : ptsClass(x.pts)}">${x.pts == null ? "—" : x.pts > 0 ? "+" + x.pts : "0"}</span>
+        </div>`
+      )
+      .join("");
+    const inner = `
+      <h2 class="card-head">${WC.flag(mm.home.code)} ${esc(mm.home.name)} – ${esc(mm.away.name)} ${WC.flag(mm.away.code)}</h2>
+      <p class="hint">${fmtDate(effDate(mm))}${effTime(mm) ? ` · ${effTime(mm)}` : ""} · Résultat : <b>${scoreStr(r)}</b></p>
+      <div class="detail-list">${list}</div>`;
+    openModal(inner);
   }
 
   /* ---------------- Modale règles ---------------- */
