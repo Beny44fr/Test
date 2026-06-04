@@ -54,9 +54,12 @@
     [[3, 0], [1, 2]], // J3 (dernière journée : matchs simultanés)
   ];
 
+  // Horaires indicatifs (heure locale du match) — affinés par l'API à la synchro
+  const TIME_SLOTS = ["12:00", "15:00", "18:00", "21:00"];
+
   // Génération des 72 matchs de poule
   const MATCHES = [];
-  WC.GROUPS.forEach((g) => {
+  WC.GROUPS.forEach((g, gi) => {
     SCHEDULE.forEach((pairs, mi) => {
       pairs.forEach((p, pi) => {
         MATCHES.push({
@@ -66,12 +69,16 @@
           home: g.teams[p[0]],
           away: g.teams[p[1]],
           date: DATES[g.letter][mi],
+          time: TIME_SLOTS[(gi + mi + pi) % TIME_SLOTS.length], // indicatif
         });
       });
     });
   });
-  // Tri chronologique puis par groupe
-  MATCHES.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.group.localeCompare(b.group)));
+  // Tri chronologique (date puis heure) puis par groupe
+  MATCHES.sort((a, b) => {
+    const ka = a.date + a.time, kb = b.date + b.time;
+    return ka < kb ? -1 : ka > kb ? 1 : a.group.localeCompare(b.group);
+  });
   WC.MATCHES = MATCHES;
 
   // Question bonus (le vainqueur / les finalistes sont désormais couverts

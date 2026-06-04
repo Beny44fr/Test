@@ -41,6 +41,10 @@
       '<path d="M3 7h7l3 4h5a3 3 0 0 1 3 3v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M3 14h18"/><path d="M6 7V4"/>',
     medal:
       '<circle cx="12" cy="15" r="6"/><path d="M9 9 6.5 3M15 9l2.5-6M9 3h6"/>',
+    lock:
+      '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    clock:
+      '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   };
 
   WC.icon = function (name, size) {
