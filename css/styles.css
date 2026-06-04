@@ -326,6 +326,25 @@ select.input { appearance: none; }
 .rules { margin: 0; padding-left: 18px; color: var(--text); }
 .rules li { margin: 6px 0; font-size: 14px; }
 
+/* ---------- Onboarding ---------- */
+.onb { align-items: center; }
+.onb-card { text-align: center; border-radius: 22px; }
+.onb-logo { font-size: 38px; font-weight: 900; letter-spacing: -1.5px; margin: 2px 0 6px; }
+.onb-logo span { background: var(--grad-gold); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.onb-tag { color: var(--muted); font-size: 14px; margin: 0 0 18px; line-height: 1.45; }
+.onb-steps { display: flex; flex-direction: column; gap: 12px; text-align: left; margin-bottom: 18px; }
+.onb-step { display: flex; gap: 12px; align-items: flex-start; }
+.onb-ic {
+  flex: 0 0 auto; width: 42px; height: 42px; border-radius: 12px; background: var(--surface2);
+  border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--primary);
+}
+.onb-step > div { display: flex; flex-direction: column; }
+.onb-step b { font-size: 14px; }
+.onb-step span { font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.onb-card .field-lab { text-align: left; }
+.onb-foot { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 12px; }
+.onb-foot .ic { color: var(--primary); }
+
 /* ---------- Toast ---------- */
 #toast {
   position: fixed; bottom: calc(96px + var(--safe)); left: 50%; transform: translateX(-50%) translateY(20px);

@@ -822,6 +822,45 @@
     document.body.appendChild(m);
   }
 
+  /* ---------------- Onboarding (premier lancement) ---------------- */
+  function openOnboarding() {
+    const m = document.createElement("div");
+    m.className = "modal onb";
+    m.innerHTML = `
+      <div class="modal-card onb-card">
+        <div class="onb-logo">Pronos<span>26</span></div>
+        <p class="onb-tag">Bienvenue ! Crée tes pronos et défie tes collègues sur la Coupe du Monde 2026.</p>
+        <div class="onb-steps">
+          <div class="onb-step"><span class="onb-ic">${WC.icon("ball", 20)}</span><div><b>Pronostique</b><span>Score de chaque match + ton tableau final et ton buteur.</span></div></div>
+          <div class="onb-step"><span class="onb-ic">${WC.icon("share", 20)}</span><div><b>Partage ton code</b><span>Envoie ton lien à l'organisateur pour rejoindre la ligue.</span></div></div>
+          <div class="onb-step"><span class="onb-ic">${WC.icon("trophy", 20)}</span><div><b>Grimpe au classement</b><span>Les points se calculent automatiquement au fil des matchs.</span></div></div>
+        </div>
+        <label class="field-lab" for="onbName">Ton nom de joueur</label>
+        <input id="onbName" class="input" maxlength="24" placeholder="Ex : Benjamin" value="${esc(state.me.name || "")}" data-onb-name />
+        <button class="btn btn-primary full" data-onb-start>C'est parti ${WC.icon("arrowRight", 18)}</button>
+        <p class="hint onb-foot">${WC.icon("check", 13)} Tes pronos sont enregistrés automatiquement sur cet appareil.</p>
+      </div>`;
+    m.addEventListener("click", (e) => {
+      if (e.target.closest("[data-onb-start]")) {
+        const inp = m.querySelector("[data-onb-name]");
+        const n = (inp.value || "").trim();
+        if (n) state.me.name = n.slice(0, 24);
+        state.onboarded = true;
+        save();
+        m.remove();
+        render();
+      }
+    });
+    m.addEventListener("input", (e) => {
+      if (e.target.hasAttribute("data-onb-name")) {
+        state.me.name = e.target.value.slice(0, 24);
+        save();
+      }
+    });
+    document.body.appendChild(m);
+    setTimeout(() => { const i = m.querySelector("[data-onb-name]"); if (i) i.focus(); }, 50);
+  }
+
   /* ---------------- Import depuis l'URL (#p=...) ---------------- */
   function checkUrlImport() {
     const h = location.hash;
@@ -909,4 +948,5 @@
   /* ---------------- Démarrage ---------------- */
   checkUrlImport();
   render();
+  if (!state.onboarded) openOnboarding();
 })();

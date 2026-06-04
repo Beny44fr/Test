@@ -8,6 +8,7 @@
   const emptyBracket = () => ({ teams: [], win: { r32: [], r16: [], qf: [], sf: [], final: [], third: [] } });
 
   const blank = () => ({
+    onboarded: false, // l'utilisateur a-t-il vu l'écran d'accueil ?
     me: { name: "" },
     predictions: {}, // { matchId: {h,a} }
     bonus: {}, // { topScorer }
