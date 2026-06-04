@@ -1,0 +1,15 @@
+{
+  "name": "Pronos Coupe du Monde 2026",
+  "short_name": "Pronos 26",
+  "description": "Pronostics premium pour la Coupe du Monde 2026 — défie tes collègues.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0e1a",
+  "theme_color": "#0a0e1a",
+  "lang": "fr",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
