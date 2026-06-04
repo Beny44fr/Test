@@ -10,6 +10,11 @@ Outil de pronostics **premium et mobile-first** pour la Coupe du Monde 2026, pen
 - **Persistance navigateur** : tout est enregistré automatiquement en `localStorage` (aucun serveur) et conservé entre les sessions sur l'appareil.
 - **Pronostics des 72 matchs de poule** (12 groupes A–L), scores **vides par défaut** (barre de progression sincère ; un « 0 » remplace le bouton « − » quand le score est vide).
 - **Onglet Meilleur buteur** : 20 candidats (avec drapeau) + saisie libre.
+- **Verrouillage** des pronos d'un match commencé et du buteur après le coup d'envoi du tournoi ; **horaires** des matchs.
+- **Rappels** : bannière « pronos à compléter » + notifications (best‑effort, app ouverte).
+- **Classement détaillé** : clic sur un joueur (points par match, taux de réussite), **face‑à‑face** entre 2 joueurs, **points par journée**.
+- **Tableau final** : vue **liste** (édition) ou vue **arbre** (visuelle).
+- **Partage** : lien, code, **QR code** et **image PNG** ; pronos des autres visibles une fois le match commencé.
 - **Écran de saisie triable** : **par groupe** ou **par date** (ordre chronologique).
 - **Tableau final automatique** : 16es → finale + **petite finale (3e place)**. Les 16es sont **alimentés automatiquement** par le classement déduit des pronos de groupes (1ers, 2es + 8 meilleurs 3es) ; il suffit de faire avancer les équipes.
 - **Synchronisation des résultats via API** (TheSportsDB par défaut) : scores, dates et villes mis à jour automatiquement, classement recalculé.
