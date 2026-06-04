@@ -138,7 +138,10 @@ select.input { appearance: none; }
 .chip { transition: transform .08s, background .15s, color .15s; }
 .chip:active { transform: scale(.92); }
 .chip.active { background: var(--grad); color: #04211a; border-color: transparent; }
+.chip.past { opacity: .45; }
+.chip.past.active { opacity: 1; }
 .seg-btn:active, .subtab:active { transform: scale(.97); }
+.match-meta.meta-past { color: #5a6a85; }
 
 /* ---------- Sous-onglets (Groupes / Tableau final) ---------- */
 .subtabs {
