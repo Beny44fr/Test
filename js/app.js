@@ -10,6 +10,8 @@
   let filterDate = null; // date sélectionnée en mode "par date"
   let predictPhase = "groups"; // "groups" | "bracket"
   let koRound = "r32"; // tour affiché dans le tableau final
+  let koView = "list"; // "list" | "tree" : affichage du tableau final
+  const notifiedMatches = new Set(); // matchs déjà notifiés (anti-spam, session)
   const scorerOther = {}; // mode "Autre" du buteur, par contexte (bonus/bonusResult)
   let resultsMode = false; // dans l'onglet Pronos : false = mes pronos, true = saisie résultats
   let syncing = false; // synchro API en cours (états de chargement)
@@ -60,6 +62,38 @@
   }
   const matchStarted = (m) => Date.now() >= matchStart(m);
   const compStarted = () => Date.now() >= KICKOFF.getTime();
+
+  // Rappels : matchs à venir non pronostiqués + prochain match
+  const pendingPredictions = () => WC.MATCHES.filter((m) => !matchStarted(m) && !WC.isFilled(state.predictions[m.id]));
+  const nextMatch = () => WC.MATCHES.filter((m) => !matchStarted(m)).sort((a, b) => matchStart(a) - matchStart(b))[0] || null;
+
+  function reminderBanner() {
+    const pend = pendingPredictions();
+    if (!pend.length) return "";
+    const nm = pend.slice().sort((a, b) => matchStart(a) - matchStart(b))[0];
+    const when = nm ? `${nm.home.name} – ${nm.away.name} · ${fmtChip(effDate(nm))} ${effTime(nm)}` : "";
+    return `
+      <div class="reminder">
+        <div class="rm-txt"><b>${pend.length}</b> prono${pend.length > 1 ? "s" : ""} à compléter<span class="rm-sub">Prochain : ${esc(when)}</span></div>
+        <button class="btn btn-primary rm-btn" data-act="goPending">Compléter</button>
+      </div>`;
+  }
+
+  // Notifications best-effort (tant que l'app est ouverte)
+  function checkReminders() {
+    if (!state.remindersOn || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const now = Date.now();
+    WC.MATCHES.forEach((m) => {
+      if (WC.isFilled(state.predictions[m.id]) || notifiedMatches.has(m.id)) return;
+      const diff = matchStart(m) - now;
+      if (diff > 0 && diff <= 3600000) {
+        notifiedMatches.add(m.id);
+        try {
+          new Notification("Pronostic à faire", { body: `${m.home.name} – ${m.away.name} à ${effTime(m)}. N'oublie pas ton prono !`, tag: "wc-" + m.id });
+        } catch (e) {}
+      }
+    });
+  }
 
   // Tableau final calculé automatiquement depuis les pronos de groupes
   function computeR32(preds) {
@@ -124,6 +158,8 @@
         </div>
       </header>
 
+      ${reminderBanner()}
+
       <section class="card">
         <label class="field-lab" for="meName">Ton nom de joueur</label>
         <input id="meName" class="input" maxlength="24" placeholder="Ex : Benjamin" value="${esc(name)}" data-name />
@@ -151,6 +187,7 @@
       </section>
 
       <div class="reset-row">
+        ${typeof Notification !== "undefined" ? `<button class="link-btn" data-act="toggleReminders">${state.remindersOn ? `${WC.icon("check", 13)} Rappels activés` : `${WC.icon("clock", 13)} Activer les rappels`}</button>` : ""}
         <button class="link-btn danger" data-act="resetMine">${WC.icon("x", 14)} Réinitialiser mes pronostics</button>
       </div>
       <p class="foot">Données : tirage officiel du 5 déc. 2025 · dates indicatives</p>
@@ -211,7 +248,7 @@
 
     return `
       ${head}
-      ${resultsMode ? syncBar() : ""}
+      ${resultsMode ? syncBar() : reminderBanner()}
       <div class="phase-meta"><span class="pill">${filled}/${WC.MATCHES.length} matchs</span></div>
       ${seg}
       <div class="chips">${chips}</div>
@@ -331,6 +368,23 @@
       ? `<div class="champ-banner">${WC.icon("trophy", 20)} Champion ${isResults ? "" : "pronostiqué"} : <b>${flagName(champion)}</b></div>`
       : "";
 
+    const viewToggle = `
+      <div class="seg">
+        <button class="seg-btn ${koView === "list" ? "active" : ""}" data-koview="list">Vue liste</button>
+        <button class="seg-btn ${koView === "tree" ? "active" : ""}" data-koview="tree">Vue arbre</button>
+      </div>`;
+
+    // Vue arbre (visuelle, lecture seule)
+    if (koView === "tree") {
+      return `
+        <p class="hint ko-hint">Vue d'ensemble du tableau. Repasse en « Vue liste » pour faire avancer les équipes.</p>
+        ${banner}
+        ${viewToggle}
+        ${bracketTree(isResults, r32teams, B)}
+        ${isResults ? "" : `<button class="btn btn-primary full" data-act="share">${WC.icon("share", 18)} Partager mes pronos</button>`}
+      `;
+    }
+
     let cards = "";
     for (let i = 0; i < round.n; i++) {
       const [a, b] = teamsOf(i);
@@ -360,6 +414,7 @@
     return `
       <p class="hint ko-hint">Barème : ${WC.KO_POINTS.r32} pts par qualifié en 8es, ${WC.KO_POINTS.r16} en quarts, ${WC.KO_POINTS.qf} en demies, ${WC.KO_POINTS.sf} par finaliste, ${WC.THIRD_POINTS} pts pour la 3e place, ${WC.KO_POINTS.final} pts pour le vainqueur.</p>
       ${banner}
+      ${viewToggle}
       <div class="chips">${roundChips}</div>
       ${autoNote}
       <div class="match-list">${cards}</div>
@@ -382,6 +437,40 @@
         <div class="ko-side ${winner === a ? "is-win" : ""}">${cell(a)}${advBtn(a)}</div>
         <div class="ko-side ${winner === b ? "is-win" : ""}">${cell(b)}${advBtn(b)}</div>
       </div>`;
+  }
+
+  /* ---------------- Tableau final — vue arbre ---------------- */
+  function btTeam(name, win) {
+    const t = name ? WC.TEAM_BY_NAME[name] : null;
+    return `<div class="bt-team ${win ? "win" : ""} ${name ? "" : "empty"}">${t ? WC.flag(t.code) : ""}<span class="bt-name">${name ? esc(name) : "—"}</span></div>`;
+  }
+
+  function bracketTree(isResults, r32teams, B) {
+    const pairFor = (rk, prevKey, i) => {
+      if (rk === "r32") return [r32teams[i * 2] || "", r32teams[i * 2 + 1] || ""];
+      const pw = B.win[prevKey] || [];
+      return [pw[i * 2] || "", pw[i * 2 + 1] || ""];
+    };
+    const cols = WC.KO_ROUNDS.map((r) => {
+      let cells = "";
+      for (let i = 0; i < r.n; i++) {
+        const [a, b] = pairFor(r.key, r.prev, i);
+        const w = (B.win[r.key] || [])[i] || "";
+        cells += `<div class="bt-match">${btTeam(a, w && w === a)}${btTeam(b, w && w === b)}</div>`;
+      }
+      return `<div class="bt-col"><div class="bt-head">${r.short}</div><div class="bt-cells">${cells}</div></div>`;
+    }).join("");
+    // Colonne champion / 3e place
+    const champ = (B.win.final || [])[0];
+    const third = (B.win.third || [])[0];
+    const finalCol = `<div class="bt-col bt-final">
+        <div class="bt-head">Sacre</div>
+        <div class="bt-cells">
+          <div class="bt-trophy">${WC.icon("trophy", 18)} ${champ ? flagName(champ) : '<span class="muted">—</span>'}</div>
+          <div class="bt-trophy bronze">${WC.icon("medal", 16)} ${third ? flagName(third) : '<span class="muted">—</span>'}</div>
+        </div>
+      </div>`;
+    return `<div class="bracket-tree">${cols}${finalCol}</div>`;
   }
 
   function flagName(name) {
@@ -492,7 +581,10 @@
           )
           .join("")}
       </div>
-      ${rows.length >= 2 ? `<button class="btn btn-ghost full" data-act="versus">${WC.icon("users", 16)} Face-à-face entre deux joueurs</button>` : ""}
+      <div class="btn-group">
+        <button class="btn btn-ghost" data-act="byMatchday">${WC.icon("chart", 16)} Par journée</button>
+        ${rows.length >= 2 ? `<button class="btn btn-ghost" data-act="versus">${WC.icon("users", 16)} Face-à-face</button>` : ""}
+      </div>
       <p class="foot">Touche un joueur pour le détail de ses points. Barème : score exact ${WC.POINTS.exact} pts · différence ${WC.POINTS.diff} · résultat ${WC.POINTS.outcome} · tableau ${WC.KO_POINTS.r32}→${WC.KO_POINTS.final}</p>
     `;
   };
@@ -568,7 +660,7 @@
   }
 
   document.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-view],[data-act],[data-group],[data-date],[data-viewby],[data-phase],[data-round-tab]");
+    const b = e.target.closest("[data-view],[data-act],[data-group],[data-date],[data-viewby],[data-phase],[data-round-tab],[data-koview]");
     if (!b) return;
 
     if (b.dataset.view) {
@@ -596,6 +688,10 @@
       koRound = b.dataset.roundTab;
       return render();
     }
+    if (b.dataset.koview) {
+      koView = b.dataset.koview;
+      return render();
+    }
 
     const act = b.dataset.act;
     if (act === "goGroups") {
@@ -615,6 +711,38 @@
       predictPhase = "scorer";
       view = "predict";
       return render();
+    }
+    if (act === "goPending") {
+      const target = pendingPredictions()[0] || nextMatch();
+      resultsMode = false;
+      predictPhase = "groups";
+      view = "predict";
+      if (target) {
+        viewBy = "date";
+        filterDate = effDate(target);
+      }
+      return render();
+    }
+    if (act === "toggleReminders") {
+      if (state.remindersOn) {
+        state.remindersOn = false;
+        save();
+        toast("Rappels désactivés");
+        return render();
+      }
+      if (typeof Notification === "undefined") return toast("Notifications non supportées");
+      Notification.requestPermission().then((p) => {
+        if (p === "granted") {
+          state.remindersOn = true;
+          save();
+          toast("Rappels activés");
+          checkReminders();
+          render();
+        } else {
+          toast("Autorisation refusée");
+        }
+      });
+      return;
     }
     if (act === "koWin") {
       const isRes = b.dataset.store === "koResult";
@@ -672,6 +800,8 @@
       openPlayerDetail(b.dataset.name);
     } else if (act === "matchDetail") {
       openMatchDetail(b.dataset.mid);
+    } else if (act === "byMatchday") {
+      openByMatchday();
     } else if (act === "versus") {
       openVersus(state.me.name || "Moi", null);
     } else if (act === "versusFrom") {
@@ -1104,6 +1234,77 @@
     });
   }
 
+  /* ---------------- Stats par journée ---------------- */
+  const JOURNEES = [
+    { key: "g1", label: "Groupes — J1", type: "g", md: 1 },
+    { key: "g2", label: "Groupes — J2", type: "g", md: 2 },
+    { key: "g3", label: "Groupes — J3", type: "g", md: 3 },
+    { key: "r32", label: "16es de finale", type: "ko", round: "r32" },
+    { key: "r16", label: "8es de finale", type: "ko", round: "r16" },
+    { key: "qf", label: "Quarts de finale", type: "ko", round: "qf" },
+    { key: "sf", label: "Demi-finales", type: "ko", round: "sf" },
+    { key: "fin", label: "Finale & 3e place", type: "kf" },
+  ];
+  const lc = (s) => String(s || "").trim().toLowerCase();
+
+  function journeePoints(p, j) {
+    if (j.type === "g") {
+      let pts = 0, played = 0;
+      WC.MATCHES.filter((m) => m.matchday === j.md).forEach((m) => {
+        const r = state.results[m.id];
+        if (!WC.isFilled(r)) return;
+        played++;
+        pts += WC.scoreMatch((p.predictions || {})[m.id], r).points;
+      });
+      return { pts, has: played > 0 };
+    }
+    const win = (p.bracket && p.bracket.win) || {};
+    if (j.type === "ko") {
+      const real = (state.bracketResults.win[j.round] || []).filter(Boolean);
+      if (!real.length) return { pts: 0, has: false };
+      const set = new Set(real.map(lc));
+      const seen = new Set();
+      let pts = 0;
+      (win[j.round] || []).filter(Boolean).forEach((n) => {
+        const k = lc(n);
+        if (set.has(k) && !seen.has(k)) { seen.add(k); pts += WC.KO_POINTS[j.round]; }
+      });
+      return { pts, has: true };
+    }
+    // finale + 3e
+    const rf = (state.bracketResults.win.final || [])[0];
+    const rt = (state.bracketResults.win.third || [])[0];
+    if (!rf && !rt) return { pts: 0, has: false };
+    let pts = 0;
+    if (rf && (win.final || [])[0] && lc(win.final[0]) === lc(rf)) pts += WC.KO_POINTS.final;
+    if (rt && (win.third || [])[0] && lc(win.third[0]) === lc(rt)) pts += WC.THIRD_POINTS;
+    return { pts, has: true };
+  }
+
+  function openByMatchday() {
+    const players = allPlayers();
+    const meName = state.me.name || "Moi";
+    const rows = JOURNEES.map((j) => {
+      const mine = journeePoints(me(), j);
+      let best = null;
+      players.forEach((p) => {
+        const r = journeePoints(p, j);
+        if (r.has && (!best || r.pts > best.pts)) best = { name: p.name || "Moi", pts: r.pts };
+      });
+      const meCls = best && best.name === meName && best.pts > 0 ? "jr-top" : "";
+      return `
+        <div class="detail-row jr">
+          <span class="dr-lbl">${j.label}</span>
+          <span class="jr-me ${mine.has && mine.pts > 0 ? ptsClass(mine.pts) : ""}">${mine.has ? (mine.pts > 0 ? "+" + mine.pts : "0") : "—"}</span>
+          <span class="jr-best ${meCls}">${best ? `${esc(best.name)} · ${best.pts}` : "—"}</span>
+        </div>`;
+    }).join("");
+    openModal(`
+      <h2 class="card-head">${WC.icon("chart", 20)} Points par journée</h2>
+      <div class="jr-headrow"><span>Journée</span><span>Moi</span><span>Top journée</span></div>
+      <div class="detail-list">${rows}</div>`);
+  }
+
   /* ---------------- Modale règles ---------------- */
   function openRules() {
     const m = document.createElement("div");
@@ -1311,5 +1512,6 @@
   if (!state.onboarded) openOnboarding();
   // Importe automatiquement le calendrier (dates/villes/horaires) et les résultats
   autoSync();
-  setInterval(autoSync, 60000);
+  checkReminders();
+  setInterval(() => { autoSync(); checkReminders(); }, 60000);
 })();
