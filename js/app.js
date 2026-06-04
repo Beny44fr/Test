@@ -496,6 +496,10 @@
           <button class="btn btn-ghost" data-act="copyCode">${WC.icon("copy", 16)} Copier le code</button>
           <button class="btn btn-ghost" data-act="share">${WC.icon("share", 16)} Partager</button>
         </div>
+        <div class="btn-group">
+          <button class="btn btn-ghost" data-act="qr">${WC.icon("qr", 16)} QR code</button>
+          <button class="btn btn-ghost" data-act="shareImg">${WC.icon("image", 16)} Image à partager</button>
+        </div>
         <textarea class="code-box" readonly rows="3">${myCode}</textarea>
       </section>
 
@@ -662,6 +666,13 @@
     } else if (act === "copyCode") {
       copy(WC.encodePlayer(me()));
       toast("Code copié");
+    } else if (act === "copyApp") {
+      copy(appUrl());
+      toast("Lien copié");
+    } else if (act === "qr") {
+      openQR();
+    } else if (act === "shareImg") {
+      shareImage();
     } else if (act === "importCode") {
       importColleague();
     } else if (act === "removeMember") {
@@ -825,6 +836,101 @@
     } catch (e) {
       toast("Code invalide");
     }
+  }
+
+  /* ---------------- QR code & image de partage ---------------- */
+  const appUrl = () => location.href.split("#")[0];
+
+  function openQR() {
+    const url = appUrl();
+    const src = "https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=8&data=" + encodeURIComponent(url);
+    openModal(`
+      <h2 class="card-head">${WC.icon("qr", 20)} Rejoindre la ligue</h2>
+      <p class="hint">Tes collègues scannent ce QR code pour ouvrir l'app, puis t'envoient leur code.</p>
+      <div class="qr-wrap"><img class="qr-img" alt="QR code" src="${src}" /></div>
+      <div class="code-box" style="text-align:center">${esc(url)}</div>
+      <button class="btn btn-primary full" data-act="copyApp">${WC.icon("link", 16)} Copier le lien de l'app</button>
+    `);
+  }
+
+  function shareImage() {
+    const c = document.createElement("canvas");
+    c.width = 1080; c.height = 1350;
+    const x = c.getContext("2d");
+    // Fond
+    const g = x.createLinearGradient(0, 0, 1080, 1350);
+    g.addColorStop(0, "#0f1626"); g.addColorStop(1, "#0a0e1a");
+    x.fillStyle = g; x.fillRect(0, 0, 1080, 1350);
+    // Bandeau
+    const gh = x.createLinearGradient(0, 0, 1080, 0);
+    gh.addColorStop(0, "#00e0a4"); gh.addColorStop(1, "#00a3ff");
+    x.fillStyle = gh; x.fillRect(0, 0, 1080, 14);
+    const F = "system-ui, 'Segoe UI', Arial, sans-serif";
+    x.textAlign = "left";
+    x.fillStyle = "#8a99b8"; x.font = `700 34px ${F}`;
+    x.fillText("FIFA WORLD CUP 2026", 80, 150);
+    x.fillStyle = "#eef3ff"; x.font = `900 120px ${F}`;
+    x.fillText("PRONOS 26", 76, 280);
+    // Nom du joueur
+    x.fillStyle = "#ffd24a"; x.font = `800 60px ${F}`;
+    x.fillText(state.me.name || "Mes pronos", 80, 410);
+
+    const filled = WC.MATCHES.filter((m) => WC.isFilled(state.predictions[m.id])).length;
+    const champ = (state.bracket.win && (state.bracket.win.final || [])[0]) || "—";
+    const scorer = state.bonus.topScorer || "—";
+    let rankLine = null;
+    if (hasResults()) {
+      const rows = allPlayers()
+        .map((p) => ({ name: p.name, ...WC.totalPoints(p, state.results, state.bonusResults, state.bracketResults) }))
+        .sort((a, b) => b.total - a.total || b.exact - a.exact);
+      const meName = state.me.name || "Moi";
+      const pos = rows.findIndex((r) => r.name === meName);
+      if (pos >= 0) rankLine = [`${rows[pos].total} pts`, `${pos + 1}e / ${rows.length}`];
+    }
+
+    const items = [
+      ["Pronostics remplis", `${filled} / ${WC.MATCHES.length}`],
+      ["Champion pronostiqué", champ],
+      ["Meilleur buteur", scorer.length > 26 ? scorer.slice(0, 25) + "…" : scorer],
+    ];
+    if (rankLine) items.push(["Mon total", rankLine[0]], ["Mon classement", rankLine[1]]);
+
+    let y = 560;
+    items.forEach(([k, v]) => {
+      x.fillStyle = "#141d30"; roundRect(x, 80, y, 920, 120, 24); x.fill();
+      x.strokeStyle = "#243352"; x.lineWidth = 2; roundRect(x, 80, y, 920, 120, 24); x.stroke();
+      x.fillStyle = "#8a99b8"; x.font = `600 32px ${F}`; x.fillText(k, 116, y + 50);
+      x.fillStyle = "#eef3ff"; x.font = `800 46px ${F}`; x.fillText(String(v), 116, y + 100);
+      y += 142;
+    });
+
+    x.fillStyle = "#8a99b8"; x.font = `600 30px ${F}`; x.textAlign = "center";
+    x.fillText("Rejoins la ligue et défie-moi !", 540, 1290);
+
+    c.toBlob((blob) => {
+      if (!blob) return toast("Image indisponible");
+      const file = new File([blob], "pronos26.png", { type: "image/png" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], title: "Pronos CM 2026", text: "Mes pronos Coupe du Monde 2026 !" }).catch(() => {});
+      } else {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "pronos26.png";
+        a.click();
+        URL.revokeObjectURL(a.href);
+        toast("Image enregistrée");
+      }
+    }, "image/png");
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
   }
 
   function exportLeague() {
