@@ -49,7 +49,52 @@
         }
       });
     });
+    // Petite finale (3e place)
+    const realThird = (resultBracket.win.third || [])[0];
+    const myThird = playerBracket.win && (playerBracket.win.third || [])[0];
+    if (realThird && myThird && norm(realThird) === norm(myThird)) pts += WC.THIRD_POINTS;
     return pts;
+  };
+
+  /**
+   * Classement de chaque groupe à partir d'un jeu de pronostics (ou résultats).
+   * Tri : points > diff. de buts > buts marqués > ordre alphabétique.
+   */
+  WC.groupStandings = function (preds) {
+    return WC.GROUPS.map((g) => {
+      const stats = {};
+      g.teams.forEach((t) => (stats[t.name] = { team: t, pts: 0, gf: 0, ga: 0, gd: 0, played: 0 }));
+      WC.MATCHES.filter((m) => m.group === g.letter).forEach((m) => {
+        const p = preds[m.id];
+        if (!WC.isFilled(p)) return;
+        const H = stats[m.home.name];
+        const A = stats[m.away.name];
+        H.gf += p.h; H.ga += p.a; A.gf += p.a; A.ga += p.h; H.played++; A.played++;
+        if (p.h > p.a) H.pts += 3;
+        else if (p.h < p.a) A.pts += 3;
+        else { H.pts++; A.pts++; }
+      });
+      const table = Object.values(stats).map((s) => ((s.gd = s.gf - s.ga), s));
+      table.sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.team.name.localeCompare(b.team.name));
+      return { letter: g.letter, table };
+    });
+  };
+
+  /**
+   * Qualifiés pour les 16es : 1ers, 2es de chaque groupe + 8 meilleurs 3es.
+   */
+  WC.qualifiers = function (preds) {
+    const st = WC.groupStandings(preds);
+    const winners = [], runners = [], thirdsAll = [];
+    st.forEach((g) => {
+      winners.push(g.table[0].team);
+      runners.push(g.table[1].team);
+      thirdsAll.push(g.table[2]);
+    });
+    thirdsAll.sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.team.name.localeCompare(b.team.name));
+    const thirds = thirdsAll.slice(0, 8).map((s) => s.team);
+    const complete = WC.MATCHES.every((m) => WC.isFilled(preds[m.id]));
+    return { winners, runners, thirds, complete };
   };
 
   /**

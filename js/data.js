@@ -93,6 +93,7 @@
   // Points par vainqueur correct à chaque tour (un vainqueur de 16e = un
   // qualifié en 8es, etc.). Le vainqueur de la finale = champion.
   WC.KO_POINTS = { r32: 2, r16: 4, qf: 7, sf: 10, final: 20 };
+  WC.THIRD_POINTS = 8; // bonne 3e place (petite finale)
   WC.KO_LABELS = {
     r32: "qualifié en 8es",
     r16: "qualifié en quarts",

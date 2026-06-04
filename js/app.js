@@ -110,6 +110,9 @@
         <button class="tile" data-act="rules"><span class="tile-ic">${WC.icon("book", 26)}</span>Règles</button>
       </section>
 
+      <div class="reset-row">
+        <button class="link-btn danger" data-act="resetMine">${WC.icon("x", 14)} Réinitialiser mes pronostics</button>
+      </div>
       <p class="foot">Données : tirage officiel du 5 déc. 2025 · dates indicatives</p>
     `;
   };
@@ -182,10 +185,27 @@
       cards += koMatchCard(round, i, a, b, winner, isResults);
     }
 
+    // Petite finale (3e place) : affichée dans l'onglet Finale
+    if (round.key === "final") {
+      const l0 = sfLoserOf(B, 0), l1 = sfLoserOf(B, 1);
+      const tw = (B.win.third || [])[0] || "";
+      cards += `<div class="ko-subhead">${WC.icon("medal", 16)} Petite finale — 3e place <span class="pts">+${WC.THIRD_POINTS}</span></div>`;
+      cards += koMatchCard({ key: "third" }, 0, l0, l1, tw, isResults);
+      if (tw) {
+        const third = `<span class="champ-third">${WC.icon("medal", 16)} 3e place : <b>${flagName(tw)}</b></span>`;
+        cards += `<div class="ko-thirdline">${third}</div>`;
+      }
+    }
+
+    const prefill = isResults
+      ? ""
+      : `<button class="btn btn-ghost full" data-act="prefillBracket">${WC.icon("ball", 16)} Pré-remplir les 16es depuis mes pronos de groupes</button>`;
+
     return `
-      <p class="hint ko-hint">Choisis les 32 qualifiés en 16es, puis fais avancer ton tableau jusqu'au sacre. Barème : ${WC.KO_POINTS.r32} pts par qualifié en 8es, ${WC.KO_POINTS.r16} en quarts, ${WC.KO_POINTS.qf} en demies, ${WC.KO_POINTS.sf} par finaliste, ${WC.KO_POINTS.final} pts pour le vainqueur.</p>
+      <p class="hint ko-hint">Choisis les 32 qualifiés en 16es, puis fais avancer ton tableau jusqu'au sacre. Barème : ${WC.KO_POINTS.r32} pts par qualifié en 8es, ${WC.KO_POINTS.r16} en quarts, ${WC.KO_POINTS.qf} en demies, ${WC.KO_POINTS.sf} par finaliste, ${WC.THIRD_POINTS} pts pour la 3e place, ${WC.KO_POINTS.final} pts pour le vainqueur.</p>
       ${banner}
       <div class="chips">${roundChips}</div>
+      ${round.key === "r32" ? prefill : ""}
       <div class="match-list">${cards}</div>
       ${
         isResults
@@ -412,6 +432,20 @@
       save();
       return render();
     }
+    if (act === "prefillBracket") {
+      return prefillBracket();
+    }
+    if (act === "resetMine") {
+      if (confirm("Réinitialiser tous TES pronostics (groupes + tableau final) ? Le classement et les résultats ne sont pas touchés.")) {
+        state.predictions = {};
+        state.bonus = {};
+        state.bracket = WC.store.emptyBracket();
+        save();
+        toast("Pronostics réinitialisés");
+        render();
+      }
+      return;
+    }
     if (act === "inc" || act === "dec") {
       const inp = document.querySelector(`.score[data-mid="${b.dataset.mid}"][data-side="${b.dataset.side}"][data-store="${b.dataset.store}"]`);
       let n = parseInt(inp.value, 10);
@@ -468,6 +502,43 @@
     }
   });
 
+  // Construit les 16es à partir des pronostics de la phase de groupes
+  function prefillBracket() {
+    const q = WC.qualifiers(state.predictions);
+    if (!q.winners.filter(Boolean).length) {
+      return toast("Remplis d'abord des pronos de groupes");
+    }
+    const already = (state.bracket.teams || []).filter(Boolean).length;
+    if (already && !confirm("Remplacer ton tableau actuel par les qualifiés issus de tes pronos de groupes ?")) return;
+
+    // 16 affiches : 1ers + 4 meilleurs 3es face aux 2es + 4 autres 3es
+    const seedA = [...q.winners, ...q.thirds.slice(0, 4)]; // 16
+    const seedB = [...q.runners, ...q.thirds.slice(4, 8)]; // 16
+    const teams = [];
+    for (let i = 0; i < 16; i++) {
+      teams[i * 2] = seedA[i] ? seedA[i].name : "";
+      teams[i * 2 + 1] = seedB[i] ? seedB[i].name : "";
+    }
+    state.bracket.teams = teams;
+    // On repart d'un tableau neuf côté vainqueurs
+    state.bracket.win = WC.store.emptyBracket().win;
+    pruneBracket(state.bracket);
+    save();
+    koRound = "r32";
+    toast(q.complete ? "16es pré-remplis depuis tes pronos" : "Pré-rempli (pronos de groupes incomplets)");
+    render();
+  }
+
+  // Perdant de la demi-finale i (pour la petite finale)
+  function sfLoserOf(B, i) {
+    const pw = (B.win && B.win.qf) || [];
+    const a = pw[i * 2] || "";
+    const b = pw[i * 2 + 1] || "";
+    const w = (B.win.sf || [])[i];
+    if (!w) return "";
+    return w === a ? b : a;
+  }
+
   // Nettoie les vainqueurs devenus incohérents après un changement amont
   function pruneBracket(B) {
     if (!B.win) Object.assign(B, WC.store.emptyBracket());
@@ -486,6 +557,9 @@
         if (w[i] && w[i] !== a && w[i] !== b) w[i] = "";
       }
     });
+    // Petite finale : le 3e doit être l'un des deux perdants de demie
+    const tw = (B.win.third || [])[0];
+    if (tw && tw !== sfLoserOf(B, 0) && tw !== sfLoserOf(B, 1)) B.win.third = [];
   }
 
   function updateProgress() {
@@ -585,9 +659,10 @@
           <li><b>+${WC.KO_POINTS.r16}</b> — par équipe en quarts de finale</li>
           <li><b>+${WC.KO_POINTS.qf}</b> — par équipe en demi-finales</li>
           <li><b>+${WC.KO_POINTS.sf}</b> — par finaliste</li>
+          <li><b>+${WC.THIRD_POINTS}</b> — bonne 3e place (petite finale)</li>
           <li><b>+${WC.KO_POINTS.final}</b> — pour le champion du monde</li>
         </ul>
-        <p class="hint">Le tableau est noté par équipe : peu importe la position exacte, tu marques dès qu'une équipe que tu as fait avancer atteint réellement le tour.</p>
+        <p class="hint">Le tableau est noté par équipe : peu importe la position exacte, tu marques dès qu'une équipe que tu as fait avancer atteint réellement le tour. Astuce : le bouton « Pré-remplir les 16es » place automatiquement les qualifiés calculés depuis tes pronos de groupes — tu peux ensuite tout ajuster.</p>
         <h3>Bonus (fin de tournoi)</h3>
         <ul class="rules">
           ${WC.BONUS.map((b) => `<li><b>+${b.points}</b> — ${b.label}</li>`).join("")}

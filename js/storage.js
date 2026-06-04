@@ -5,7 +5,7 @@
   const WC = (window.WC = window.WC || {});
   const KEY = "wc2026.v1";
 
-  const emptyBracket = () => ({ teams: [], win: { r32: [], r16: [], qf: [], sf: [], final: [] } });
+  const emptyBracket = () => ({ teams: [], win: { r32: [], r16: [], qf: [], sf: [], final: [], third: [] } });
 
   const blank = () => ({
     me: { name: "" },

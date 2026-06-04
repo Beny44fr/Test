@@ -184,6 +184,14 @@ select.input { appearance: none; }
 .ko-adv:disabled { opacity: .35; cursor: default; }
 .ko-adv.win { background: var(--grad); color: #04211a; border-color: transparent; }
 .muted { color: var(--muted); }
+.ko-subhead { display: flex; align-items: center; gap: 8px; margin: 16px 2px 2px; font-weight: 800; font-size: 14px; color: var(--text); }
+.ko-subhead .ic { color: #e0985a; }
+.ko-subhead .pts { margin-left: auto; }
+.ko-thirdline { margin: 2px 2px 0; }
+.champ-third { display: inline-flex; align-items: center; gap: 8px; color: #e0985a; font-size: 14px; }
+.champ-third b { color: var(--text); display: inline-flex; align-items: center; gap: 6px; }
+.champ-third .flag { width: 22px; height: 16px; }
+.reset-row { text-align: center; margin-top: 20px; }
 
 /* ---------- Match cards ---------- */
 .match-list { display: flex; flex-direction: column; gap: 10px; }
