@@ -1,5 +1,5 @@
 /* Service worker — cache de l'app shell pour usage hors-ligne (contexte HTTPS) */
-const CACHE = "pronos-cm2026-v3";
+const CACHE = "pronos-cm2026-v6";
 const ASSETS = [
   "./",
   "./index.html",
@@ -8,6 +8,7 @@ const ASSETS = [
   "./js/icons.js",
   "./js/scoring.js",
   "./js/storage.js",
+  "./js/api.js",
   "./js/app.js",
   "./manifest.webmanifest",
   "./icon.svg",

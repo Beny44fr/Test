@@ -6,8 +6,11 @@
   let state = WC.store.load();
   let view = "home";
   let filterGroup = "A";
+  let viewBy = "group"; // "group" | "date" : tri de l'écran de saisie
+  let filterDate = null; // date sélectionnée en mode "par date"
   let predictPhase = "groups"; // "groups" | "bracket"
   let koRound = "r32"; // tour affiché dans le tableau final
+  const scorerOther = {}; // mode "Autre" du buteur, par contexte (bonus/bonusResult)
   let resultsMode = false; // dans l'onglet Pronos : false = mes pronos, true = saisie résultats
 
   const app = document.getElementById("app");
@@ -18,6 +21,8 @@
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const fmtDate = (iso) =>
     new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
+  const fmtChip = (iso) =>
+    new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
   const toast = (msg) => {
     let t = document.getElementById("toast");
     if (!t) {
@@ -35,6 +40,24 @@
   const allPlayers = () => [me(), ...state.league];
   const hasResults = () => WC.MATCHES.some((m) => WC.isFilled(state.results[m.id]));
 
+  // Date / ville effectives (surchargées par l'API si dispo)
+  const effDate = (m) => (state.schedule[m.id] && state.schedule[m.id].date) || m.date;
+  const effCity = (m) => state.schedule[m.id] && state.schedule[m.id].city;
+  const uniqueDates = () => [...new Set(WC.MATCHES.map(effDate))].sort();
+
+  // Tableau final calculé automatiquement depuis les pronos de groupes
+  function computeR32(preds) {
+    const q = WC.qualifiers(preds);
+    const seedA = [...q.winners, ...q.thirds.slice(0, 4)]; // 16
+    const seedB = [...q.runners, ...q.thirds.slice(4, 8)]; // 16
+    const teams = [];
+    for (let i = 0; i < 16; i++) {
+      teams[i * 2] = seedA[i] ? seedA[i].name : "";
+      teams[i * 2 + 1] = seedB[i] ? seedB[i].name : "";
+    }
+    return teams;
+  }
+
   /* ---------------- Rendu principal ---------------- */
   function render() {
     app.innerHTML = views[view] ? views[view]() : views.home();
@@ -46,9 +69,10 @@
     const items = [
       ["home", "home", "Accueil"],
       ["predict", "ball", "Pronos"],
-      ["ranking", "trophy", "Classement"],
+      ["scorer", "boot", "Buteur"],
+      ["ranking", "trophy", "Classt"],
       ["league", "users", "Ligue"],
-      ["results", "target", "Résultats"],
+      ["results", "target", "Résult"],
     ];
     document.getElementById("nav").innerHTML = items
       .map(
@@ -67,11 +91,6 @@
     const days = Math.max(0, Math.ceil((KICKOFF - new Date()) / 86400000));
     const filled = WC.MATCHES.filter((m) => WC.isFilled(state.predictions[m.id])).length;
     const pct = Math.round((filled / WC.MATCHES.length) * 100);
-    const koFilled = (state.bracket.win.final || []).filter(Boolean).length
-      ? "Champion désigné"
-      : (state.bracket.teams || []).filter(Boolean).length
-      ? "En cours"
-      : "À remplir";
     const name = state.me.name || "";
     return `
       <header class="hero">
@@ -100,7 +119,10 @@
         </div>
         <div class="progress"><div class="progress-bar" style="width:${pct}%"></div></div>
         <button class="btn btn-primary full" data-act="goGroups">${filled ? "Continuer mes pronos" : "Commencer mes pronos"} ${WC.icon("arrowRight", 18)}</button>
-        <button class="btn btn-ghost full" data-act="goBracket">${WC.icon("trophy", 16)} Tableau final — ${koFilled}</button>
+        <div class="btn-group">
+          <button class="btn btn-ghost" data-act="goBracket">${WC.icon("trophy", 16)} Tableau final</button>
+          <button class="btn btn-ghost" data-view="scorer">${WC.icon("boot", 16)} Buteur</button>
+        </div>
       </section>
 
       <section class="grid2">
@@ -134,32 +156,119 @@
     if (predictPhase === "bracket") return head + bracketView(resultsMode);
 
     const store = resultsMode ? state.results : state.predictions;
-    const matches = WC.MATCHES.filter((m) => m.group === filterGroup);
-    const groupChips = WC.GROUPS.map(
-      (g) => `<button class="chip ${g.letter === filterGroup ? "active" : ""}" data-group="${g.letter}">${g.letter}</button>`
-    ).join("");
     const filled = WC.MATCHES.filter((m) => WC.isFilled(store[m.id])).length;
+
+    // Bascule de tri : par groupe / par date
+    const seg = `
+      <div class="seg">
+        <button class="seg-btn ${viewBy === "group" ? "active" : ""}" data-viewby="group">Par groupe</button>
+        <button class="seg-btn ${viewBy === "date" ? "active" : ""}" data-viewby="date">Par date</button>
+      </div>`;
+
+    let chips, matches;
+    if (viewBy === "date") {
+      const dates = uniqueDates();
+      if (!filterDate || !dates.includes(filterDate)) filterDate = dates[0];
+      chips = dates
+        .map(
+          (d) =>
+            `<button class="chip chip-wide ${d === filterDate ? "active" : ""}" data-date="${d}">${fmtChip(d)}</button>`
+        )
+        .join("");
+      matches = WC.MATCHES.filter((m) => effDate(m) === filterDate);
+    } else {
+      chips = WC.GROUPS.map(
+        (g) => `<button class="chip ${g.letter === filterGroup ? "active" : ""}" data-group="${g.letter}">${g.letter}</button>`
+      ).join("");
+      matches = WC.MATCHES.filter((m) => m.group === filterGroup).sort((a, b) =>
+        effDate(a) < effDate(b) ? -1 : effDate(a) > effDate(b) ? 1 : 0
+      );
+    }
 
     return `
       ${head}
+      ${resultsMode ? syncBar() : ""}
       <div class="phase-meta"><span class="pill">${filled}/${WC.MATCHES.length} matchs</span></div>
-      <div class="chips">${groupChips}</div>
+      ${seg}
+      <div class="chips">${chips}</div>
       <div class="match-list">
         ${matches.map((m) => matchCard(m, store)).join("")}
       </div>
       ${
         resultsMode
           ? bonusBlock(state.bonusResults, true)
-          : `${bonusBlock(state.bonus, false)}
-             <button class="btn btn-primary full" data-act="share">${WC.icon("share", 18)} Partager mes pronos</button>`
+          : `<button class="btn btn-primary full" data-act="share">${WC.icon("share", 18)} Partager mes pronos</button>`
       }
     `;
   };
+
+  /* ---------------- Onglet Meilleur buteur ---------------- */
+  views.scorer = function () {
+    const val = state.bonus.topScorer || "";
+    const labels = WC.TOP_SCORER_LABELS;
+    const inList = labels.includes(val);
+    const other = scorerOther.bonus || (!!val && !inList);
+    const bonusPts = (WC.BONUS.find((b) => b.id === "topScorer") || {}).points || 10;
+
+    const cards = WC.TOP_SCORERS.map((p) => {
+      const label = WC.scorerLabel(p);
+      const t = WC.TEAM_BY_NAME[p.team];
+      const sel = !other && val === label;
+      return `
+        <button class="scorer-card ${sel ? "sel" : ""}" data-act="pickScorer" data-label="${esc(label)}">
+          <span class="sc-flag">${t ? WC.flag(t.code) : ""}</span>
+          <span class="sc-txt"><span class="sc-name">${esc(p.name)}</span><span class="sc-team">${esc(p.team)}</span></span>
+          <span class="sc-check">${sel ? WC.icon("check", 16) : ""}</span>
+        </button>`;
+    }).join("");
+
+    const otherCard = `
+      <button class="scorer-card ${other ? "sel" : ""}" data-act="pickScorerOther">
+        <span class="sc-flag">${WC.icon("user", 18)}</span>
+        <span class="sc-txt"><span class="sc-name">Autre joueur</span><span class="sc-team">Saisie libre</span></span>
+        <span class="sc-check">${other ? WC.icon("check", 16) : ""}</span>
+      </button>`;
+
+    const otherInput = other
+      ? `<input class="input scorer-other" data-scorer-text data-store="bonus" maxlength="40" placeholder="Nom du buteur…" value="${esc(val)}" />`
+      : "";
+
+    return `
+      <header class="topbar"><h2>Meilleur buteur</h2><span class="pill">+${bonusPts} pts</span></header>
+      <p class="hint sc-hint">Qui finira meilleur buteur de la Coupe du Monde ? Choisis un favori (ou saisis un autre joueur).</p>
+      <div class="scorer-grid">${cards}${otherCard}</div>
+      ${otherInput}
+      <button class="btn btn-primary full" data-act="share">${WC.icon("share", 18)} Partager mes pronos</button>
+    `;
+  };
+
+  // Barre de synchronisation API (mode résultats) — détaillée dans api.js
+  function syncBar() {
+    const last = state.apiCfg && state.apiCfg.lastSync;
+    return `
+      <div class="syncbar">
+        <button class="btn btn-primary" data-act="apiSync">${WC.icon("download", 16)} Synchroniser les résultats</button>
+        <button class="link-btn" data-act="apiSettings">Réglages API</button>
+        ${last ? `<span class="sync-info">Dernière synchro : ${esc(last)}</span>` : `<span class="sync-info">Jamais synchronisé</span>`}
+      </div>`;
+  }
 
   /* ---------------- Tableau final (phases finales) ---------------- */
   function bracketView(isResults) {
     const B = isResults ? state.bracketResults : state.bracket;
     if (!B.win) Object.assign(B, WC.store.emptyBracket());
+    let r32teams;
+    if (isResults) {
+      // Côté résultats : l'API fait foi ; sinon on dérive des résultats de groupes
+      r32teams = B.teams && B.teams.length ? B.teams : computeR32(state.results);
+      B.teams = r32teams;
+    } else {
+      // Mes pronos : 16es alimentés automatiquement par mes pronos de groupes
+      r32teams = computeR32(state.predictions);
+      B.teams = r32teams;
+      pruneBracket(B, r32teams);
+    }
+    const apiSourced = isResults && B.source === "api";
     const round = WC.KO_ROUNDS.find((r) => r.key === koRound) || WC.KO_ROUNDS[0];
 
     const roundChips = WC.KO_ROUNDS.map(
@@ -168,7 +277,7 @@
 
     // Récupère les deux équipes d'un match du tour courant
     const teamsOf = (i) => {
-      if (round.key === "r32") return [B.teams[i * 2] || "", B.teams[i * 2 + 1] || ""];
+      if (round.key === "r32") return [r32teams[i * 2] || "", r32teams[i * 2 + 1] || ""];
       const pw = B.win[round.prev] || [];
       return [pw[i * 2] || "", pw[i * 2 + 1] || ""];
     };
@@ -197,15 +306,18 @@
       }
     }
 
-    const prefill = isResults
-      ? ""
-      : `<button class="btn btn-ghost full" data-act="prefillBracket">${WC.icon("ball", 16)} Pré-remplir les 16es depuis mes pronos de groupes</button>`;
+    let autoNote = "";
+    if (apiSourced) {
+      autoNote = `<p class="hint ko-auto">${WC.icon("download", 14)} Tableau final renseigné automatiquement depuis l'API. Tu peux ajuster manuellement si besoin.</p>`;
+    } else if (round.key === "r32") {
+      autoNote = `<p class="hint ko-auto">${WC.icon("ball", 14)} Les 16es sont alimentés automatiquement par ${isResults ? "les résultats" : "tes pronos"} de la phase de groupes (1ers, 2es + 8 meilleurs 3es). Fais ensuite avancer chaque équipe.</p>`;
+    }
 
     return `
-      <p class="hint ko-hint">Choisis les 32 qualifiés en 16es, puis fais avancer ton tableau jusqu'au sacre. Barème : ${WC.KO_POINTS.r32} pts par qualifié en 8es, ${WC.KO_POINTS.r16} en quarts, ${WC.KO_POINTS.qf} en demies, ${WC.KO_POINTS.sf} par finaliste, ${WC.THIRD_POINTS} pts pour la 3e place, ${WC.KO_POINTS.final} pts pour le vainqueur.</p>
+      <p class="hint ko-hint">Barème : ${WC.KO_POINTS.r32} pts par qualifié en 8es, ${WC.KO_POINTS.r16} en quarts, ${WC.KO_POINTS.qf} en demies, ${WC.KO_POINTS.sf} par finaliste, ${WC.THIRD_POINTS} pts pour la 3e place, ${WC.KO_POINTS.final} pts pour le vainqueur.</p>
       ${banner}
       <div class="chips">${roundChips}</div>
-      ${round.key === "r32" ? prefill : ""}
+      ${autoNote}
       <div class="match-list">${cards}</div>
       ${
         isResults
@@ -217,35 +329,15 @@
 
   function koMatchCard(round, i, a, b, winner, isResults) {
     const ds = isResults ? "koResult" : "ko";
-    const isR32 = round.key === "r32";
-    const cell = (team, slot) => {
-      if (isR32) {
-        return `<select class="ko-select" data-act="koTeam" data-store="${ds}" data-slot="${i * 2 + slot}">
-            ${teamOptions(team)}
-          </select>`;
-      }
-      return `<span class="ko-team-label">${team ? flagName(team) : '<span class="muted">—</span>'}</span>`;
-    };
+    const cell = (team) => `<span class="ko-team-label">${team ? flagName(team) : '<span class="muted">— à venir —</span>'}</span>`;
     const advBtn = (team) =>
       `<button class="ko-adv ${winner && winner === team ? "win" : ""}" data-act="koWin" data-store="${ds}" data-round="${round.key}" data-idx="${i}" data-team="${esc(team)}" ${team ? "" : "disabled"} aria-label="faire avancer">${WC.icon("check", 14)}</button>`;
     return `
       <div class="ko-match ${winner ? "decided" : ""}">
         <span class="ko-num">M${i + 1}</span>
-        <div class="ko-side ${winner === a ? "is-win" : ""}">${cell(a, 0)}${advBtn(a)}</div>
-        <div class="ko-side ${winner === b ? "is-win" : ""}">${cell(b, 1)}${advBtn(b)}</div>
+        <div class="ko-side ${winner === a ? "is-win" : ""}">${cell(a)}${advBtn(a)}</div>
+        <div class="ko-side ${winner === b ? "is-win" : ""}">${cell(b)}${advBtn(b)}</div>
       </div>`;
-  }
-
-  function teamOptions(sel) {
-    return (
-      `<option value="">— équipe —</option>` +
-      WC.GROUPS.map(
-        (g) =>
-          `<optgroup label="Groupe ${g.letter}">` +
-          g.teams.map((t) => `<option value="${esc(t.name)}" ${sel === t.name ? "selected" : ""}>${esc(t.name)}</option>`).join("") +
-          `</optgroup>`
-      ).join("")
-    );
   }
 
   function flagName(name) {
@@ -256,27 +348,48 @@
   function matchCard(m, store) {
     const v = store[m.id] || {};
     const ds = resultsMode ? "result" : "pred";
-    const stepper = (side) => {
-      const val = Number.isInteger(v[side]) ? v[side] : "";
+    const teamRow = (team, side) => {
+      const filled = Number.isInteger(v[side]);
+      const val = filled ? v[side] : "";
+      // Quand le score est vide, le bouton "−" est remplacé par un "0"
+      const left =
+        filled && v[side] >= 1
+          ? `<button class="step" data-act="dec" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="moins">${WC.icon("minus", 16)}</button>`
+          : `<button class="step step-zero" data-act="setzero" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="zéro">0</button>`;
       return `
-        <div class="stepper">
-          <button class="step" data-act="dec" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="moins">${WC.icon("minus", 16)}</button>
-          <input class="score" inputmode="numeric" maxlength="2" data-mid="${m.id}" data-side="${side}" data-store="${ds}" value="${val}" placeholder="·" />
-          <button class="step" data-act="inc" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="plus">${WC.icon("plus", 16)}</button>
+        <div class="m-team">
+          ${WC.flag(team.code)}
+          <span class="tname">${esc(team.name)}</span>
+          <div class="stepper">
+            ${left}
+            <input class="score" inputmode="numeric" maxlength="2" data-mid="${m.id}" data-side="${side}" data-store="${ds}" value="${val}" />
+            <button class="step" data-act="inc" data-mid="${m.id}" data-side="${side}" data-store="${ds}" aria-label="plus">${WC.icon("plus", 16)}</button>
+          </div>
         </div>`;
     };
     const done = WC.isFilled(v);
+    const city = effCity(m);
     return `
-      <div class="match ${done ? "done" : ""}">
-        <div class="match-meta">J${m.matchday} · ${fmtDate(m.date)}</div>
-        <div class="match-row">
-          <div class="team team-h">${WC.flag(m.home.code)}<span class="tname">${esc(m.home.name)}</span></div>
-          ${stepper("h")}
-          <span class="vs">:</span>
-          ${stepper("a")}
-          <div class="team team-a"><span class="tname">${esc(m.away.name)}</span>${WC.flag(m.away.code)}</div>
-        </div>
+      <div class="match ${done ? "done" : ""}" data-id="${m.id}">
+        <div class="match-meta">Groupe ${m.group} · J${m.matchday} · ${fmtDate(effDate(m))}${city ? ` · ${esc(city)}` : ""}</div>
+        ${teamRow(m.home, "h")}
+        ${teamRow(m.away, "a")}
       </div>`;
+  }
+
+  function scorerField(val, ds) {
+    const labels = WC.TOP_SCORER_LABELS;
+    const inList = labels.includes(val);
+    const other = scorerOther[ds] || (!!val && !inList);
+    const opts =
+      `<option value="" ${!val && !other ? "selected" : ""}>— choisir —</option>` +
+      labels.map((l) => `<option value="${esc(l)}" ${inList && val === l ? "selected" : ""}>${esc(l)}</option>`).join("") +
+      `<option value="__other__" ${other ? "selected" : ""}>Autre…</option>`;
+    const sel = `<select class="input" data-scorer-select data-store="${ds}">${opts}</select>`;
+    const txt = other
+      ? `<input class="input scorer-other" data-scorer-text data-store="${ds}" maxlength="40" placeholder="Nom du buteur" value="${esc(val)}" />`
+      : "";
+    return sel + txt;
   }
 
   function bonusBlock(store, isResults) {
@@ -290,10 +403,10 @@
         <p class="hint">Points en fin de tournoi.</p>
         ${WC.BONUS.map((b) => {
           const val = (store || {})[b.id] || "";
-          const input =
-            b.type === "team"
-              ? `<select class="input" data-bonus="${b.id}" data-store="${ds}">${teamOpts(val)}</select>`
-              : `<input class="input" data-bonus="${b.id}" data-store="${ds}" maxlength="32" placeholder="Nom du joueur" value="${esc(val)}" />`;
+          let input;
+          if (b.id === "topScorer") input = scorerField(val, ds);
+          else if (b.type === "team") input = `<select class="input" data-bonus="${b.id}" data-store="${ds}">${teamOpts(val)}</select>`;
+          else input = `<input class="input" data-bonus="${b.id}" data-store="${ds}" maxlength="40" placeholder="Nom du joueur" value="${esc(val)}" />`;
           return `<div class="bonus-row"><label><span class="bonus-lab">${WC.icon(b.icon, 16)} ${b.label}</span> <span class="pts">+${b.points}</span></label>${input}</div>`;
         }).join("")}
       </section>`;
@@ -385,11 +498,14 @@
     } else {
       target[mid][side] = Math.max(0, Math.min(99, parseInt(val, 10) || 0));
     }
+    // Le tableau de pronostics est dérivé des scores de groupes : on le garde cohérent.
+    // (Le tableau des résultats est piloté par l'API / l'organisateur.)
+    if (store !== "result") pruneBracket(state.bracket, computeR32(state.predictions));
     save();
   }
 
   document.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-view],[data-act],[data-group],[data-phase],[data-round-tab]");
+    const b = e.target.closest("[data-view],[data-act],[data-group],[data-date],[data-viewby],[data-phase],[data-round-tab]");
     if (!b) return;
 
     if (b.dataset.view) {
@@ -399,6 +515,14 @@
     }
     if (b.dataset.group) {
       filterGroup = b.dataset.group;
+      return render();
+    }
+    if (b.dataset.date) {
+      filterDate = b.dataset.date;
+      return render();
+    }
+    if (b.dataset.viewby) {
+      viewBy = b.dataset.viewby;
       return render();
     }
     if (b.dataset.phase) {
@@ -424,19 +548,24 @@
       return render();
     }
     if (act === "koWin") {
-      const target = b.dataset.store === "koResult" ? state.bracketResults : state.bracket;
+      const isRes = b.dataset.store === "koResult";
+      const target = isRes ? state.bracketResults : state.bracket;
       const arr = (target.win[b.dataset.round] = target.win[b.dataset.round] || []);
       const idx = +b.dataset.idx;
       arr[idx] = arr[idx] === b.dataset.team ? "" : b.dataset.team; // re-tap = annuler
-      pruneBracket(target);
+      if (isRes) target.source = "manual";
+      else pruneBracket(target, computeR32(state.predictions));
       save();
       return render();
     }
-    if (act === "prefillBracket") {
-      return prefillBracket();
+    if (act === "apiSync") {
+      return doApiSync();
+    }
+    if (act === "apiSettings") {
+      return openApiSettings();
     }
     if (act === "resetMine") {
-      if (confirm("Réinitialiser tous TES pronostics (groupes + tableau final) ? Le classement et les résultats ne sont pas touchés.")) {
+      if (confirm("Réinitialiser tous TES pronostics (scores vidés, buteur et tableau final remis à zéro) ? Le classement et les résultats ne sont pas touchés.")) {
         state.predictions = {};
         state.bonus = {};
         state.bracket = WC.store.emptyBracket();
@@ -446,15 +575,24 @@
       }
       return;
     }
-    if (act === "inc" || act === "dec") {
-      const inp = document.querySelector(`.score[data-mid="${b.dataset.mid}"][data-side="${b.dataset.side}"][data-store="${b.dataset.store}"]`);
-      let n = parseInt(inp.value, 10);
-      n = isNaN(n) ? 0 : n;
-      n = act === "inc" ? Math.min(99, n + 1) : Math.max(0, n - 1);
-      inp.value = n;
-      setScore(b.dataset.store, b.dataset.mid, b.dataset.side, n);
-      inp.closest(".match").classList.toggle("done", WC.isFilled((b.dataset.store === "result" ? state.results : state.predictions)[b.dataset.mid]));
+    if (act === "inc" || act === "dec" || act === "setzero") {
+      const { mid, side, store } = b.dataset;
+      const cur = (store === "result" ? state.results : state.predictions)[mid] || {};
+      const base = Number.isInteger(cur[side]) ? cur[side] : 0;
+      let n = act === "inc" ? Math.min(99, base + 1) : act === "dec" ? Math.max(0, base - 1) : 0;
+      setScore(store, mid, side, n);
+      refreshMatch(mid);
       updateProgress();
+    } else if (act === "pickScorer") {
+      scorerOther.bonus = false;
+      state.bonus.topScorer = b.dataset.label;
+      save();
+      render();
+    } else if (act === "pickScorerOther") {
+      scorerOther.bonus = true;
+      if (WC.TOP_SCORER_LABELS.includes(state.bonus.topScorer)) state.bonus.topScorer = "";
+      save();
+      render();
     } else if (act === "rules") {
       openRules();
     } else if (act === "share") {
@@ -493,39 +631,30 @@
       const target = el.dataset.store === "bonusResult" ? state.bonusResults : state.bonus;
       target[el.dataset.bonus] = el.value;
       save();
-    } else if (el.dataset.act === "koTeam") {
-      const target = el.dataset.store === "koResult" ? state.bracketResults : state.bracket;
-      target.teams[+el.dataset.slot] = el.value;
-      pruneBracket(target);
+    } else if (el.hasAttribute("data-scorer-text")) {
+      const target = el.dataset.store === "bonusResult" ? state.bonusResults : state.bonus;
+      target.topScorer = el.value;
       save();
-      render();
     }
   });
 
-  // Construit les 16es à partir des pronostics de la phase de groupes
-  function prefillBracket() {
-    const q = WC.qualifiers(state.predictions);
-    if (!q.winners.filter(Boolean).length) {
-      return toast("Remplis d'abord des pronos de groupes");
-    }
-    const already = (state.bracket.teams || []).filter(Boolean).length;
-    if (already && !confirm("Remplacer ton tableau actuel par les qualifiés issus de tes pronos de groupes ?")) return;
+  // Selects : certains navigateurs n'émettent que "change"
+  document.addEventListener("change", (e) => {
+    const el = e.target;
+    if (el.hasAttribute && el.hasAttribute("data-scorer-select")) handleScorerSelect(el);
+  });
 
-    // 16 affiches : 1ers + 4 meilleurs 3es face aux 2es + 4 autres 3es
-    const seedA = [...q.winners, ...q.thirds.slice(0, 4)]; // 16
-    const seedB = [...q.runners, ...q.thirds.slice(4, 8)]; // 16
-    const teams = [];
-    for (let i = 0; i < 16; i++) {
-      teams[i * 2] = seedA[i] ? seedA[i].name : "";
-      teams[i * 2 + 1] = seedB[i] ? seedB[i].name : "";
+  function handleScorerSelect(el) {
+    const ds = el.dataset.store;
+    const target = ds === "bonusResult" ? state.bonusResults : state.bonus;
+    if (el.value === "__other__") {
+      scorerOther[ds] = true;
+      target.topScorer = "";
+    } else {
+      scorerOther[ds] = false;
+      target.topScorer = el.value;
     }
-    state.bracket.teams = teams;
-    // On repart d'un tableau neuf côté vainqueurs
-    state.bracket.win = WC.store.emptyBracket().win;
-    pruneBracket(state.bracket);
     save();
-    koRound = "r32";
-    toast(q.complete ? "16es pré-remplis depuis tes pronos" : "Pré-rempli (pronos de groupes incomplets)");
     render();
   }
 
@@ -540,15 +669,17 @@
   }
 
   // Nettoie les vainqueurs devenus incohérents après un changement amont
-  function pruneBracket(B) {
+  function pruneBracket(B, teams) {
     if (!B.win) Object.assign(B, WC.store.emptyBracket());
+    const r32 = teams || B.teams || [];
+    B.teams = r32;
     WC.KO_ROUNDS.forEach((r) => {
       const w = (B.win[r.key] = B.win[r.key] || []);
       for (let i = 0; i < r.n; i++) {
         let a, b;
         if (r.key === "r32") {
-          a = B.teams[i * 2] || "";
-          b = B.teams[i * 2 + 1] || "";
+          a = r32[i * 2] || "";
+          b = r32[i * 2 + 1] || "";
         } else {
           const pw = B.win[r.prev] || [];
           a = pw[i * 2] || "";
@@ -562,12 +693,21 @@
     if (tw && tw !== sfLoserOf(B, 0) && tw !== sfLoserOf(B, 1)) B.win.third = [];
   }
 
+  // Remplace une seule carte de match (met à jour le stepper sans recharger la page)
+  function refreshMatch(mid) {
+    const el = document.querySelector(`.match[data-id="${mid}"]`);
+    if (!el) return;
+    const m = WC.MATCHES.find((x) => x.id === mid);
+    const store = resultsMode ? state.results : state.predictions;
+    el.outerHTML = matchCard(m, store);
+  }
+
   function updateProgress() {
-    const pill = document.querySelector(".topbar .pill");
+    const pill = document.querySelector(".phase-meta .pill");
     if (!pill) return;
     const store = resultsMode ? state.results : state.predictions;
     const filled = WC.MATCHES.filter((m) => WC.isFilled(store[m.id])).length;
-    pill.textContent = `${filled}/${WC.MATCHES.length}`;
+    pill.textContent = `${filled}/${WC.MATCHES.length} matchs`;
   }
 
   /* ---------------- Partage / import ---------------- */
@@ -662,7 +802,7 @@
           <li><b>+${WC.THIRD_POINTS}</b> — bonne 3e place (petite finale)</li>
           <li><b>+${WC.KO_POINTS.final}</b> — pour le champion du monde</li>
         </ul>
-        <p class="hint">Le tableau est noté par équipe : peu importe la position exacte, tu marques dès qu'une équipe que tu as fait avancer atteint réellement le tour. Astuce : le bouton « Pré-remplir les 16es » place automatiquement les qualifiés calculés depuis tes pronos de groupes — tu peux ensuite tout ajuster.</p>
+        <p class="hint">Le tableau est noté par équipe : peu importe la position exacte, tu marques dès qu'une équipe que tu as fait avancer atteint réellement le tour. Les 16es se remplissent automatiquement depuis tes pronos de groupes — tu n'as plus qu'à faire avancer les équipes.</p>
         <h3>Bonus (fin de tournoi)</h3>
         <ul class="rules">
           ${WC.BONUS.map((b) => `<li><b>+${b.points}</b> — ${b.label}</li>`).join("")}
@@ -672,14 +812,53 @@
           <li>Chacun remplit ses pronos et <b>partage son lien/code</b>.</li>
           <li>L'organisateur ajoute chaque code dans l'onglet <b>Ligue</b>.</li>
           <li>Au fil des matchs, l'organisateur saisit les <b>résultats</b>.</li>
-          <li>Le <b>classement</b> se met à jour automatiquement 🏆</li>
+          <li>Le <b>classement</b> se met à jour automatiquement.</li>
         </ol>
-        <p class="hint">Astuce : les dates des matchs sont indicatives et l'app fonctionne 100% hors-ligne.</p>
+        <p class="hint">Astuce : l'écran de saisie se trie par groupe ou par date. Les résultats peuvent être synchronisés via une API (onglet Résultats), et le tableau final s'alimente tout seul depuis la phase de groupes.</p>
       </div>`;
     m.addEventListener("click", (e) => {
       if (e.target === m || e.target.hasAttribute("data-close")) m.remove();
     });
     document.body.appendChild(m);
+  }
+
+  /* ---------------- Onboarding (premier lancement) ---------------- */
+  function openOnboarding() {
+    const m = document.createElement("div");
+    m.className = "modal onb";
+    m.innerHTML = `
+      <div class="modal-card onb-card">
+        <div class="onb-logo">Pronos<span>26</span></div>
+        <p class="onb-tag">Bienvenue ! Crée tes pronos et défie tes collègues sur la Coupe du Monde 2026.</p>
+        <div class="onb-steps">
+          <div class="onb-step"><span class="onb-ic">${WC.icon("ball", 20)}</span><div><b>Pronostique</b><span>Score de chaque match + ton tableau final et ton buteur.</span></div></div>
+          <div class="onb-step"><span class="onb-ic">${WC.icon("share", 20)}</span><div><b>Partage ton code</b><span>Envoie ton lien à l'organisateur pour rejoindre la ligue.</span></div></div>
+          <div class="onb-step"><span class="onb-ic">${WC.icon("trophy", 20)}</span><div><b>Grimpe au classement</b><span>Les points se calculent automatiquement au fil des matchs.</span></div></div>
+        </div>
+        <label class="field-lab" for="onbName">Ton nom de joueur</label>
+        <input id="onbName" class="input" maxlength="24" placeholder="Ex : Benjamin" value="${esc(state.me.name || "")}" data-onb-name />
+        <button class="btn btn-primary full" data-onb-start>C'est parti ${WC.icon("arrowRight", 18)}</button>
+        <p class="hint onb-foot">${WC.icon("check", 13)} Tes pronos sont enregistrés automatiquement sur cet appareil.</p>
+      </div>`;
+    m.addEventListener("click", (e) => {
+      if (e.target.closest("[data-onb-start]")) {
+        const inp = m.querySelector("[data-onb-name]");
+        const n = (inp.value || "").trim();
+        if (n) state.me.name = n.slice(0, 24);
+        state.onboarded = true;
+        save();
+        m.remove();
+        render();
+      }
+    });
+    m.addEventListener("input", (e) => {
+      if (e.target.hasAttribute("data-onb-name")) {
+        state.me.name = e.target.value.slice(0, 24);
+        save();
+      }
+    });
+    document.body.appendChild(m);
+    setTimeout(() => { const i = m.querySelector("[data-onb-name]"); if (i) i.focus(); }, 50);
   }
 
   /* ---------------- Import depuis l'URL (#p=...) ---------------- */
@@ -699,7 +878,75 @@
     }
   }
 
+  /* ---------------- Synchronisation API des résultats ---------------- */
+  async function doApiSync() {
+    const cfg = state.apiCfg || WC.api.defaults();
+    toast("Synchronisation…");
+    try {
+      const res = await WC.api.sync(cfg, state);
+      cfg.lastSync = new Date().toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      state.apiCfg = cfg;
+      save();
+      toast(`${res.finished} match(s) de poule · ${res.ko} en phase finale`);
+      render();
+    } catch (e) {
+      console.warn(e);
+      alert("Échec de la synchronisation : " + (e && e.message ? e.message : e) + "\n\nVérifie les Réglages API (fournisseur, clé, identifiant de compétition, saison) et ta connexion.");
+    }
+  }
+
+  function openApiSettings() {
+    const cfg = Object.assign(WC.api.defaults(), state.apiCfg || {});
+    const m = document.createElement("div");
+    m.className = "modal";
+    m.innerHTML = `
+      <div class="modal-card">
+        <button class="modal-x" data-close aria-label="fermer">${WC.icon("x", 16)}</button>
+        <h2 class="card-head">${WC.icon("download", 20)} Réglages API (résultats)</h2>
+        <p class="hint">Synchronise automatiquement les scores réels depuis une API de football. Par défaut : TheSportsDB (gratuit, compatible navigateur).</p>
+        <label class="field-lab">Fournisseur</label>
+        <select class="input" data-cfg="provider">
+          <option value="thesportsdb" ${cfg.provider === "thesportsdb" ? "selected" : ""}>TheSportsDB (gratuit)</option>
+        </select>
+        <label class="field-lab">Clé API</label>
+        <input class="input" data-cfg="key" value="${esc(cfg.key)}" placeholder="123" />
+        <label class="field-lab">Identifiant de compétition (idLeague)</label>
+        <input class="input" data-cfg="league" value="${esc(cfg.league)}" />
+        <label class="field-lab">Saison</label>
+        <input class="input" data-cfg="season" value="${esc(cfg.season)}" />
+        <button class="btn btn-primary full" data-cfg-save>Enregistrer</button>
+        <button class="btn btn-ghost full" data-cfg-test>Tester la connexion</button>
+        <p class="hint">L'app associe les matchs par nom d'équipe et met aussi à jour dates et villes. Les scores des matchs terminés alimentent le classement.</p>
+      </div>`;
+    m.addEventListener("click", async (e) => {
+      if (e.target === m || e.target.hasAttribute("data-close")) return m.remove();
+      const read = () => {
+        m.querySelectorAll("[data-cfg]").forEach((el) => (cfg[el.dataset.cfg] = el.value.trim()));
+        return cfg;
+      };
+      if (e.target.hasAttribute("data-cfg-save")) {
+        state.apiCfg = read();
+        save();
+        toast("Réglages enregistrés");
+        m.remove();
+        render();
+      } else if (e.target.hasAttribute("data-cfg-test")) {
+        read();
+        e.target.textContent = "Test en cours…";
+        try {
+          const n = await WC.api.test(cfg);
+          alert(`Connexion OK : ${n} matchs trouvés pour la compétition/saison.`);
+        } catch (err) {
+          alert("Échec : " + (err && err.message ? err.message : err));
+        }
+        e.target.textContent = "Tester la connexion";
+      }
+    });
+    document.body.appendChild(m);
+  }
+
   /* ---------------- Démarrage ---------------- */
   checkUrlImport();
   render();
+  if (!state.onboarded) openOnboarding();
 })();
