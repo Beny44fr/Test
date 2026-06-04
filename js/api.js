@@ -21,43 +21,77 @@
       return events.length;
     },
 
-    // Synchronise les résultats dans state ; renvoie {updated, finished}
+    // Synchronise les résultats dans state ; renvoie {updated, finished, ko}
     async sync(cfg, state) {
       const events = await fetchEvents(cfg);
       const index = buildNameIndex();
       let updated = 0,
-        finished = 0;
+        finished = 0,
+        ko = 0;
+
+      // Accumulateurs pour le tableau final (vainqueurs réels par tour)
+      const koWin = { r32: [], r16: [], qf: [], sf: [], final: [], third: [] };
+      const r32teams = [];
 
       events.forEach((ev) => {
         const home = index[norm(ev.strHomeTeam)];
         const away = index[norm(ev.strAwayTeam)];
         if (!home || !away) return;
+        const h = toInt(ev.intHomeScore);
+        const a = toInt(ev.intAwayScore);
+        const round = koRoundOf(ev);
+
+        if (round) {
+          // Match à élimination directe
+          if (round === "r32") r32teams.push(home.name, away.name);
+          if (h != null && a != null && h !== a) {
+            const w = h > a ? home : away;
+            if (koWin[round].indexOf(w.name) < 0) koWin[round].push(w.name);
+            ko++;
+          }
+          return;
+        }
+
+        // Match de poule : on l'associe à l'un de nos 72 matchs
         const match = findGroupMatch(home, away);
         if (!match) return;
-
-        // Date + ville (même si le match n'est pas encore joué)
         const date = (ev.dateEvent || "").slice(0, 10);
         const city = ev.strCity || ev.strVenue || "";
         if (date || city) {
           state.schedule[match.id] = Object.assign({}, state.schedule[match.id], date ? { date } : {}, city ? { city } : {});
           updated++;
         }
-
-        // Score si le match est terminé
-        const h = toInt(ev.intHomeScore);
-        const a = toInt(ev.intAwayScore);
-        const done = /finish|ft|aet|after/i.test(ev.strStatus || "") || (h != null && a != null);
-        if (done && h != null && a != null) {
-          // Réoriente le score selon notre ordre domicile/extérieur
-          const sameOrder = sameTeam(ev.strHomeTeam, match.home, index);
+        if (h != null && a != null) {
+          const sameOrder = home.name === match.home.name;
           state.results[match.id] = sameOrder ? { h, a } : { h: a, a: h };
           finished++;
         }
       });
 
-      return { updated, finished };
+      // Applique le tableau final réel (n'écrase que les tours réellement reçus)
+      if (!state.bracketResults || !state.bracketResults.win) state.bracketResults = WC.store.emptyBracket();
+      Object.keys(koWin).forEach((k) => {
+        if (koWin[k].length) state.bracketResults.win[k] = koWin[k];
+      });
+      if (r32teams.length) state.bracketResults.teams = r32teams;
+      if (r32teams.length || Object.values(koWin).some((arr) => arr.length)) state.bracketResults.source = "api";
+
+      return { updated, finished, ko };
     },
   };
+
+  // Classe un match dans un tour à élimination directe (ou null si poule)
+  function koRoundOf(ev) {
+    const s = norm((ev.strStage || "") + " " + (ev.strRound || ""));
+    if (!s) return null;
+    if (/(thirdplace|3rdplace|playoffforthird)/.test(s)) return "third";
+    if (/final/.test(s) && !/semifinal|quarterfinal/.test(s)) return "final";
+    if (/semifinal|semi/.test(s)) return "sf";
+    if (/quarterfinal|quarter/.test(s)) return "qf";
+    if (/roundof16|lastof16|(^|[^0-9])16([^0-9]|$)/.test(s)) return "r16";
+    if (/roundof32|lastof32|(^|[^0-9])32([^0-9]|$)/.test(s)) return "r32";
+    return null;
+  }
 
   /* ---------------- Récupération brute ---------------- */
   async function fetchEvents(cfg) {

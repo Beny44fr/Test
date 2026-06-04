@@ -226,10 +226,18 @@
   function bracketView(isResults) {
     const B = isResults ? state.bracketResults : state.bracket;
     if (!B.win) Object.assign(B, WC.store.emptyBracket());
-    // Les 16es sont alimentés automatiquement par les pronos (ou résultats) de groupes
-    const r32teams = computeR32(isResults ? state.results : state.predictions);
-    B.teams = r32teams;
-    pruneBracket(B, r32teams);
+    let r32teams;
+    if (isResults) {
+      // Côté résultats : l'API fait foi ; sinon on dérive des résultats de groupes
+      r32teams = B.teams && B.teams.length ? B.teams : computeR32(state.results);
+      B.teams = r32teams;
+    } else {
+      // Mes pronos : 16es alimentés automatiquement par mes pronos de groupes
+      r32teams = computeR32(state.predictions);
+      B.teams = r32teams;
+      pruneBracket(B, r32teams);
+    }
+    const apiSourced = isResults && B.source === "api";
     const round = WC.KO_ROUNDS.find((r) => r.key === koRound) || WC.KO_ROUNDS[0];
 
     const roundChips = WC.KO_ROUNDS.map(
@@ -267,10 +275,12 @@
       }
     }
 
-    const autoNote =
-      round.key === "r32"
-        ? `<p class="hint ko-auto">${WC.icon("ball", 14)} Les 16es sont alimentés automatiquement par ${isResults ? "les résultats" : "tes pronos"} de la phase de groupes (1ers, 2es + 8 meilleurs 3es). Fais ensuite avancer chaque équipe.</p>`
-        : "";
+    let autoNote = "";
+    if (apiSourced) {
+      autoNote = `<p class="hint ko-auto">${WC.icon("download", 14)} Tableau final renseigné automatiquement depuis l'API. Tu peux ajuster manuellement si besoin.</p>`;
+    } else if (round.key === "r32") {
+      autoNote = `<p class="hint ko-auto">${WC.icon("ball", 14)} Les 16es sont alimentés automatiquement par ${isResults ? "les résultats" : "tes pronos"} de la phase de groupes (1ers, 2es + 8 meilleurs 3es). Fais ensuite avancer chaque équipe.</p>`;
+    }
 
     return `
       <p class="hint ko-hint">Barème : ${WC.KO_POINTS.r32} pts par qualifié en 8es, ${WC.KO_POINTS.r16} en quarts, ${WC.KO_POINTS.qf} en demies, ${WC.KO_POINTS.sf} par finaliste, ${WC.THIRD_POINTS} pts pour la 3e place, ${WC.KO_POINTS.final} pts pour le vainqueur.</p>
@@ -451,9 +461,9 @@
     } else {
       target[mid][side] = Math.max(0, Math.min(99, parseInt(val, 10) || 0));
     }
-    // Le tableau final dépend des scores de groupes : on le garde cohérent
-    const B = store === "result" ? state.bracketResults : state.bracket;
-    pruneBracket(B, computeR32(target));
+    // Le tableau de pronostics est dérivé des scores de groupes : on le garde cohérent.
+    // (Le tableau des résultats est piloté par l'API / l'organisateur.)
+    if (store !== "result") pruneBracket(state.bracket, computeR32(state.predictions));
     save();
   }
 
@@ -501,11 +511,13 @@
       return render();
     }
     if (act === "koWin") {
-      const target = b.dataset.store === "koResult" ? state.bracketResults : state.bracket;
+      const isRes = b.dataset.store === "koResult";
+      const target = isRes ? state.bracketResults : state.bracket;
       const arr = (target.win[b.dataset.round] = target.win[b.dataset.round] || []);
       const idx = +b.dataset.idx;
       arr[idx] = arr[idx] === b.dataset.team ? "" : b.dataset.team; // re-tap = annuler
-      pruneBracket(target, computeR32(b.dataset.store === "koResult" ? state.results : state.predictions));
+      if (isRes) target.source = "manual";
+      else pruneBracket(target, computeR32(state.predictions));
       save();
       return render();
     }
@@ -781,10 +793,8 @@
       const res = await WC.api.sync(cfg, state);
       cfg.lastSync = new Date().toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
       state.apiCfg = cfg;
-      // Recalcule le tableau réel à partir des résultats fraîchement importés
-      pruneBracket(state.bracketResults, computeR32(state.results));
       save();
-      toast(`${res.updated} match(s) à jour · ${res.finished} terminé(s)`);
+      toast(`${res.finished} match(s) de poule · ${res.ko} en phase finale`);
       render();
     } catch (e) {
       console.warn(e);
