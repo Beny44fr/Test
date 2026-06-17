@@ -20,6 +20,12 @@
   const app = document.getElementById("app");
   const KICKOFF = new Date("2026-06-11T16:00:00Z");
 
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme === "light" ? "light" : "dark");
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", theme === "light" ? "#eef2f9" : "#0a0e1a");
+  }
+
   /* ---------------- Utils ---------------- */
   const save = () => WC.store.save(state);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -187,6 +193,7 @@
       </section>
 
       <div class="reset-row">
+        <button class="link-btn" data-act="toggleTheme">${state.theme === "light" ? `${WC.icon("moon", 13)} Mode sombre` : `${WC.icon("sun", 13)} Mode clair`}</button>
         ${typeof Notification !== "undefined" ? `<button class="link-btn" data-act="toggleReminders">${state.remindersOn ? `${WC.icon("check", 13)} Rappels activés` : `${WC.icon("clock", 13)} Activer les rappels`}</button>` : ""}
         <button class="link-btn danger" data-act="resetMine">${WC.icon("x", 14)} Réinitialiser mes pronostics</button>
       </div>
@@ -721,6 +728,12 @@
         viewBy = "date";
         filterDate = effDate(target);
       }
+      return render();
+    }
+    if (act === "toggleTheme") {
+      state.theme = state.theme === "light" ? "dark" : "light";
+      applyTheme(state.theme);
+      save();
       return render();
     }
     if (act === "toggleReminders") {
@@ -1507,6 +1520,7 @@
   }
 
   /* ---------------- Démarrage ---------------- */
+  applyTheme(state.theme);
   checkUrlImport();
   render();
   if (!state.onboarded) openOnboarding();
