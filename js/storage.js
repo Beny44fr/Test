@@ -10,6 +10,7 @@
   const blank = () => ({
     onboarded: false, // l'utilisateur a-t-il vu l'écran d'accueil ?
     remindersOn: false, // rappels (notifications) activés ?
+    theme: "dark", // "dark" | "light"
     me: { name: "" },
     predictions: {}, // { matchId: {h,a} }
     bonus: {}, // { topScorer }
